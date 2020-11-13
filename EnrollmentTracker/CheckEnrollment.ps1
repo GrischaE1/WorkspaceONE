@@ -42,16 +42,24 @@
 ##########################################################################################
 
 
+Param(
+
+    [Parameter(Mandatory=$true)] 
+    [string]$APIEndpoint, 
+    [string]$OG 
+ ) #end param
 
 
 ##########################################################################################
 #Declare varibales
 
+<# if you don't want to use the script parameters 
 #Set API variable
 #API Server
 $APIEndpoint = "as137.awmdm.com"
 #Your OG ID (shortform of your OG)
 $OG = "OGID"
+#>
 
 #Download URLs
 $CertURL = "https://winsettings.blob.core.windows.net/winsettings/APIEncryption.pfx?sv=201"
