@@ -253,7 +253,7 @@ if($Intuneenrolled -eq $true)
 }
 
 #Install Workspace One Agent
-$args = "/i C:\Temp\AirwatchAgent.msi /q ENROLL=Y SERVER=$(WSOServer) LGName=$($WSOOGID) USERNAME=$($WSOStagingUser) PASSWORD=$($WSOStagingPW) ASSIGNTOLOGGEDINUSER=Y DOWNLOADWSBUNDLE=FALSE IMAGE=N /LOG C:\Temp\WorkspaceONE.log"
+$args = "/i C:\Temp\AirwatchAgent.msi /q ENROLL=Y SERVER=$($WSOServer) LGName=$($WSOOGID) USERNAME=$($WSOStagingUser) PASSWORD=$($WSOStagingPW) ASSIGNTOLOGGEDINUSER=Y DOWNLOADWSBUNDLE=FALSE IMAGE=N /LOG C:\Temp\WorkspaceONE.log"
 Start-Process C:\Windows\System32\msiexec.exe -ArgumentList $args -Wait
 
 #Check enrollment
