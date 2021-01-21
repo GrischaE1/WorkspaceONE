@@ -188,7 +188,7 @@ net localgroup administrators installer /add
 
 
 #create a scheduled task for installing the Workspace ONE Intelligent HUB after the user is logged in again
-schtasks.exe /create  /tn "WorkspaceONE Enrollment" /RU installer /RP P4ssw0rd! /sc ONLOGON /tr "C:\Windows\System32\msiexec.exe /i C:\Temp\AirwatchAgent.msi /q ENROLL=Y SERVER=$(WSOServer) LGName=$($WSOOGID) USERNAME=$($WSOStagingUser) PASSWORD=$($WSOStagingPW) ASSIGNTOLOGGEDINUSER=Y DOWNLOADWSBUNDLE=FALSE IMAGE=N /LOG C:\Temp\WorkspaceONE.log"
+schtasks.exe /create  /tn "WorkspaceONE Enrollment" /RU installer /RP P4ssw0rd! /sc ONLOGON /tr "C:\Windows\System32\msiexec.exe /i C:\Temp\AirwatchAgent.msi /q ENROLL=Y SERVER=$($WSOServer) LGName=$($WSOOGID) USERNAME=$($WSOStagingUser) PASSWORD=$($WSOStagingPW) ASSIGNTOLOGGEDINUSER=Y DOWNLOADWSBUNDLE=FALSE IMAGE=N /LOG C:\Temp\WorkspaceONE.log"
 start-Sleep 10
 
 #Install the PPKG to rejoin the Domain
