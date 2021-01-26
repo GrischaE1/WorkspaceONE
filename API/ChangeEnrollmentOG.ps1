@@ -83,6 +83,7 @@ $TotalUsers = $response.Total
 
 #define all users array
 $AllUsers = @()
+$changed = 0
 
 for($i = 0; $i -lt $TotalPages; $i++)
 {
@@ -119,11 +120,14 @@ for($i = 0; $i -lt $TotalPages; $i++)
                     $body = "{`"enrollmentOrganizationGroupUuid`":`"$($TOPOGID)`"}"
 
                     $Uri = "https://$($APIEndpoint)/API/system/Users/$($userV2.Uuid)"
-                   # Invoke-RestMethod -Uri $uri -Method 'PUT' -Headers $headers -Body $body
-                                       
+                    Invoke-RestMethod -Uri $uri -Method 'PUT' -Headers $headers -Body $body
+                    
+                    #count changes
+                    $changed = $changed + 1
                 }
             }
             Start-Sleep -Seconds 1
         }
+Write-Output "Total changes made: " $changed
 
 Stop-Transcript 
