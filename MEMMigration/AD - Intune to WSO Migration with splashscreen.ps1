@@ -127,7 +127,7 @@ if($Test -eq $false)
 
 #Download the Workspace One Agent from www.getws1.com
 $WebClient = New-Object System.Net.WebClient
-$WebClient.DownloadFile("https://storage.googleapis.com/getwsone-com-prod/downloads/AirwatchAgent.msi","C:\temp\AirwatchAgent.msi")
+$WebClient.DownloadFile("https://packages.vmware.com/wsone/AirwatchAgent.msi","C:\temp\AirwatchAgent.msi")
 
 
 #Download Splashscreen
