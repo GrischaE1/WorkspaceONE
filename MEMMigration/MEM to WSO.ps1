@@ -201,7 +201,7 @@ if($Test -eq $false)
 
 #Download the Workspace One Agent from www.getws1.com
 $WebClient = New-Object System.Net.WebClient
-$WebClient.DownloadFile("https://storage.googleapis.com/getwsone-com-prod/downloads/AirwatchAgent.msi","C:\temp\AirwatchAgent.msi")
+$WebClient.DownloadFile("https://packages.vmware.com/wsone/AirwatchAgent.msi","C:\temp\AirwatchAgent.msi")
 
 #Generate Azure Graph API credentials
 $creds =New-Object System.Management.Automation.PSCredential-ArgumentList ($username,$password)
@@ -229,9 +229,15 @@ write-output "Enrolled User ID:  $($currentdevice.userid)"
 
 #get enrollmet information
 $EnrollmentID = (Get-ChildItem -Path "HKLM:\SOFTWARE\Microsoft\Enrollments\Status").PSChildName
-$MDMAuthority = (Get-ItemProperty "HKLM:\SOFTWARE\Microsoft\Enrollments\$($EnrollmentID)").ProviderID
 
-if($MDMAuthority -eq "MS DM Server"){$Intuneenrolled = $true}
+ForEach($UUID in $EnrollmentID)
+{
+    $MDMAuthority = (Get-ItemProperty "HKLM:\SOFTWARE\Microsoft\Enrollments\$($UUID)").ProviderID
+    if($MDMAuthority -eq "MS DM Server"){
+        $Intuneenrolled = $true
+        break
+    }
+}
 
 #retire the device if Intune enrolled
 if($Intuneenrolled -eq $true)
