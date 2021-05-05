@@ -1,3 +1,6 @@
+#Example here: create a XML file for adding/removing devices from a smart group.
+#change as you need.
+
 function Create-XMLBodyFile
 {
 param(
