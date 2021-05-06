@@ -19,7 +19,6 @@ param(
 $xmlWriter = new-object system.xml.xmltextwriter($TempFile,[System.Text.Encoding]::UTF8)
 $xmlWriter.Formatting = 'Indented'
 $xmlWriter.Indentation = 1
-$xmlWriter.Formatting = "utf-8"
 $XmlWriter.IndentChar = "`t"
 
 #Start root XML hive
