@@ -3,14 +3,19 @@ function Get-IntelligenceReport
 param(
         [string] $INTELRegion, 
         [string] $ReportID, 
-        [string] $APISecret, 
+        [string] $APIClientID,
+        [string] $APIClientSecret, 
         [string] $ReportDestination
     )
+
+    #encode the CLient Secret and the Client ID with Base64 - make sure to use ASCII   
+    $CombinedAuthentication = "$($APIClientID):$($APIClientSecret)"
+    $EncodedClientSecret =  [System.Convert]::ToBase64String([System.Text.Encoding]::ASCII.GetBytes($CombinedAuthentication))
 
 
     #Get Bearer Token
     $headers = New-Object "System.Collections.Generic.Dictionary[[String],[String]]"
-    $headers.Add("Authorization", "Basic $($APISecret)")
+    $headers.Add("Authorization", "Basic $($EncodedClientSecret)")
 
     $response = Invoke-RestMethod "https://auth.$($INTELRegion).data.vmwservices.com/oauth/token?grant_type=client_credentials" -Method 'POST' -Headers $headers -SessionVariable CurrentSession
 
@@ -60,8 +65,8 @@ param(
 
 $INTELRegion = "sandbox"
 $ReportID = "e38fa255-1234-1234-1234-4415c020e25e"
+$APIClientID = "intelligence_api@a9f1a6c3-ced3-4792-a65a.data.vmwservices.com"
 $APIClientSecret = "YXBpQDk54YWE0MjIwLTJjYTctNG12341td3NlcnZpY2VzLmNv3To5OTk4RERFOTZGQkExND12Q1Mz1234FEMzhFMDQwQUY0MUU1MEVEMURFQzYxM1zE3RkZBQTQ4RTU4OEMwQjc0RUFDMEZB"
 $DestinationPath = "C:\Temp\Report.csv" 
 
-
-Get-IntelligenceReport -INTELRegion $INTELRegion -ReportID $ReportID -APISecret $APIClientSecret -ReportDestination $DestinationPath
+Get-IntelligenceReport -INTELRegion $INTELRegion -ReportID $ReportID -APIClientID $APIClientID -APIClientSecret $APIClientSecret -ReportDestination $DestinationPath
