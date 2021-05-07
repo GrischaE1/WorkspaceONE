@@ -58,4 +58,4 @@ $xmlWriter.Close()
 }
 
 Create-XMLBodyFile -DeviceInformation $DeviceIDsTable -TempFile $XMLTempFile -SmartGroupName $response.Name -SmartGroupID $response.SmartGroupID -SmartGroupUuid $response.SmartGroupUuid -CriteriaType $SmartGroupType -ManagedByOrganizationGroupId $response.ManagedByOrganizationGroupId -ManagedByOrganizationGroupUUID $response.ManagedByOrganizationGroupUuid -ManagedByOrganizationGroupName $response.ManagedByOrganizationGroupName
-$Body = Get-Content $XMLTempFile
+[XML]$Body = Get-Content $XMLTempFile
