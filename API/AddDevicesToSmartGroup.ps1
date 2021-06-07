@@ -286,6 +286,8 @@ if(!$response)
     break
 }
 
+$TargetSmartGroupID = $response.SmartGroupID
+
 Foreach ($device in $response.DeviceAdditions)
 {
    #Set erroraction to silent - devices that are already in the hashtable will be generate an error
@@ -312,7 +314,7 @@ Remove-Item $XMLTempFile -Force
 
 #Change the Header to XML 
 $header = Create-UEMAPIHeader -APIUser $APIUser -APIPassword $APIPassword -APIKey $APIKey -ContentType "XML" 
-$url = "https://$($APIEndpoint)/API/mdm/smartgroups/$($TargetSmartGroup)"
+$url = "https://$($APIEndpoint)/API/mdm/smartgroups/$($TargetSmartGroupID)"
 
 #Send the information to Workspace ONE UEM
 Invoke-RestMethod $url -Method 'PUT' -Headers $header -Body $Body -Verbose -OutVariable output 4>&1 | Out-Null
