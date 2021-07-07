@@ -22,6 +22,7 @@ param(
     #Set Bearer Token
     $AccessToken = $response.access_token
 
+    <# Cookie seems not to be needed anymore
     #create new Header
     $headers = New-Object "System.Collections.Generic.Dictionary[[String],[String]]"
     $headers.Add("Authorization", "bearer $($AccessToken)")
@@ -36,12 +37,13 @@ param(
     #Get CSRF Cookie token
     $cookies = $CookieSession.Cookies.GetCookies($RequestURL)
     $CSRFToken = $Cookies[0].value
+    #>
 
     #Generate new Header with Cookie information
     $headers = New-Object "System.Collections.Generic.Dictionary[[String],[String]]"
     $headers.Add("content-type", "application/json")
     $headers.Add("Authorization", "Bearer $($AccessToken)")
-    $headers.Add("Cookie", "XSRF-TOKEN=$($CSRFToken)")
+    #$headers.Add("Cookie", "XSRF-TOKEN=$($CSRFToken)")
 
     #For POST commands there is a requirement for a body
     $body = "{`"offset`": 0, `"page_size`": 100}"
