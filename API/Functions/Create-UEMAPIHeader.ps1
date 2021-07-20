@@ -13,7 +13,6 @@ function Create-UEMAPIHeader
         $Encoding = [System.Text.Encoding]::ASCII.GetBytes($UserNameWithPassword)
         $EncodedString = [Convert]::ToBase64String($Encoding)
         $Auth = "Basic " + $EncodedString
-        $AWTenantCode = $APIKey
 
         #generate Header
         $headers = New-Object "System.Collections.Generic.Dictionary[[String],[String]]"
