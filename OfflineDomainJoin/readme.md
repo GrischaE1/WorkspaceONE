@@ -2,3 +2,4 @@
 ## **Please replace the script in the .zip file before deploying it**
 
 All infos can be found here:
+https://bit.ly/3vg5TNY
