@@ -15,7 +15,7 @@
 
 ##########################################################################################
 # Name: DomainJoinTest.ps1
-# Version: 0.3
+# Version: 0.4
 # Date: 20.06.2021
 # Created by: Grischa Ernst gernst@vmware.com
 # Contributor: Leo Prince leo@mobinergy.com
@@ -32,6 +32,7 @@
 ##########################################################################################
 #                                    Changelog 
 #
+# 0.4 - bugfixing the Domain Join Check part ( initial value 1 - now 10 minutes)
 # 0.3 - added the computername prefix support
 # 0.2 - changed SFD detection to WMI
 # 0.1 - Inital creation
@@ -99,9 +100,7 @@ do {
 
  $ODJCheckstarttime = Get-Date 
  do
-{
-
-   
+{   
        $DomainJoined = $false
        Start-Sleep -Seconds 10
  
@@ -111,7 +110,7 @@ do {
             Write-Host "Domain Join config applied" -ForegroundColor Green
        }   
   
-}while($DomainJoined -eq $false -and ((Get-Date) -le $ODJCheckstarttime.AddMinutes(1)))
+}while($DomainJoined -eq $false -and ((Get-Date) -le $ODJCheckstarttime.AddMinutes(10)))
 
 if($DomainJoined -eq $false)
 {
