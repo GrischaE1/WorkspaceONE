@@ -1,0 +1,113 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<unattend xmlns="urn:schemas-microsoft-com:unattend">
+    <settings pass="specialize">
+<component name="Microsoft-Windows-Shell-Setup" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS" xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+    <ComputerName>*</ComputerName>
+  <AutoLogon>
+                <Username>Administrator</Username>
+                <Enabled>true</Enabled>
+                <LogonCount>1</LogonCount>
+                <Password>
+                    <Value>VMware1!</Value>
+                    <PlainText>true</PlainText>
+                </Password>
+            </AutoLogon>
+            <ProductKey>1234-1234-1234-1234-1234</ProductKey>
+            <RegisteredOrganization>modernamangement.works</RegisteredOrganization>
+</component>
+        <component name="Microsoft-Windows-UnattendedJoin" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS" xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+            <Identification>
+                <JoinWorkgroup>Temp</JoinWorkgroup>
+            </Identification>
+        </component>
+        <component name="Microsoft-Windows-Deployment" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS" xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+            <RunSynchronous>
+<RunSynchronousCommand wcm:action="add">
+    <Description>EnableAdmin</Description>
+    <Path>cmd /c net user Administrator /active:yes</Path>
+    <Order>1</Order>
+</RunSynchronousCommand>
+<RunSynchronousCommand wcm:action="add">
+    <Description>UnfilterAdminToken</Description>
+    <Path>cmd /c reg add HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System /v FilterAdministratorToken /t REG_DWORD /d 0 /f</Path>
+    <Order>2</Order>
+</RunSynchronousCommand><RunSynchronousCommand wcm:action="add">
+    <Description>Disable consumer features</Description>
+    <Path>reg add HKLM\Software\Policies\Microsoft\Windows\CloudContent /v DisableWindowsConsumerFeatures /t REG_DWORD /d 1 /f</Path>
+    <Order>3</Order>
+</RunSynchronousCommand>
+                    <RunSynchronousCommand wcm:action="add">
+                        <Description>DISABLE_UAC_EnableLUA</Description>
+                        <Path>cmd /c reg ADD HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System /v EnableLUA /t REG_DWORD /d 0 /f</Path>
+                        <Order>4</Order>
+                    </RunSynchronousCommand>
+                    <RunSynchronousCommand wcm:action="add">
+                        <Description>DISABLE_UAC_ConsentPromptBehaviorAdmin</Description>
+                        <Path>cmd /c reg ADD HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System /v ConsentPromptBehaviorAdmin /t REG_DWORD /d 5 /f</Path>
+                        <Order>5</Order>
+                    </RunSynchronousCommand>
+                    <RunSynchronousCommand wcm:action="add">
+                        <Description>DISABLE_UAC_PromptOnSecureDesktop</Description>
+                        <Path>cmd /c reg ADD HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System /v PromptOnSecureDesktop /t REG_DWORD /d 1 /f</Path>
+                        <Order>6</Order>
+                    </RunSynchronousCommand>
+            </RunSynchronous>
+        </component>
+    </settings>
+    <settings pass="generalize">
+        <component name="Microsoft-Windows-PnpSysprep" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS" xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+            <DoNotCleanUpNonPresentDevices>true</DoNotCleanUpNonPresentDevices>
+            <PersistAllDeviceInstalls>true</PersistAllDeviceInstalls>
+        </component>
+    </settings>
+    <settings pass="oobeSystem">
+        <component name="Microsoft-Windows-International-Core" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS" xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+            <InputLocale>0407:00000407; 0409:00000409</InputLocale>
+            <SystemLocale>de-DE</SystemLocale>
+            <UILanguage>de-DE</UILanguage>
+            <UILanguageFallback>de-DE</UILanguageFallback>
+            <UserLocale>de-DE</UserLocale>
+        </component>
+        <component name="Microsoft-Windows-Shell-Setup" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS" xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+                    <UserAccounts>
+                                <AdministratorPassword>
+                                    <Value>VgBNAHcAYQByAGUAMQAhAEEAZABtAGkAbgBpAHMAdAByAGEAdABvAHIAUABhAHMAcwB3AG8AcgBkAA==</Value>
+                                    <PlainText>false</PlainText>
+                                </AdministratorPassword>
+
+                    </UserAccounts>
+<OOBE>
+    <HideEULAPage>True</HideEULAPage>
+    <NetworkLocation>Work</NetworkLocation>
+            <ProtectYourPC>1</ProtectYourPC>
+            <HideOnlineAccountScreens>True</HideOnlineAccountScreens>
+</OOBE>
+            <FirstLogonCommands>
+<SynchronousCommand wcm:action="add">
+    <CommandLine>powershell $timeout = new-timespan -Minutes 10; $sw = [diagnostics.stopwatch]::StartNew(); do { $Failed = $false; Try { if( (Invoke-WebRequest -Uri https://prod.esr.vmwservices.com/esr/services/api/platforms/windowspc/oems/any/apps/com.airwatch.workspaceoneunifiedagentbundle/latest?osVersion=10.0.10586 -Headers @{'"Accept"' = '"application/vnd.vmware.esr.get-latest-app-update-v1+json"'} -Method Head).StatusCode -ne '200') {$Failed = $true} } catch { $Failed = $true }  finally {start-sleep -seconds 5} } while ($Failed -And $sw.elapsed -lt $timeout)</CommandLine>
+    <Description>Executing First Commands 1</Description>
+    <Order>1</Order>
+</SynchronousCommand>                    <SynchronousCommand wcm:action="add">
+                        <CommandLine>msiexec /i c:\Recovery\OEM\AirwatchAgent.msi /qn ENROLL=Y SERVER=https://ds137.awmdm.com LGNAME=test USERNAME=staging@test.com PASSWORD=rK2Y1Q8 ASSIGNTOLOGGEDINUSER=y</CommandLine>
+                        <Description>Executing First Commands 2</Description>
+                        <Order>2</Order>
+                    </SynchronousCommand>
+                    <SynchronousCommand wcm:action="add">
+                        <CommandLine>cmd /c "del c:\windows\panther\unattend.xml /f /q"</CommandLine>
+                        <Description>Executing First Commands 4</Description>
+                        <Order>3</Order>
+		   </SynchronousCommand> 
+		   <SynchronousCommand wcm:action="add">
+                        <CommandLine>"%SystemRoot%\System32\WindowsPowershell\v1.0\powershell.exe" -NoProfile -WindowStyle Hidden -ExecutionPolicy Bypass -File C:\Temp\ODJSource\DomainJoinTest.ps1</CommandLine>
+                        <Description>Executing First Commands 5</Description>
+                        <Order>4</Order>                      
+                    </SynchronousCommand>
+            </FirstLogonCommands>
+        </component>
+    </settings>
+        <settings pass="offlineServicing">
+            <component name="Microsoft-Windows-LUA-Settings" processorArchitecture="amd64" publicKeyToken="31bf3856ad364e35" language="neutral" versionScope="nonSxS" xmlns:wcm="http://schemas.microsoft.com/WMIConfig/2002/State" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+                <EnableLUA>false</EnableLUA>
+            </component>
+        </settings>
+</unattend>
