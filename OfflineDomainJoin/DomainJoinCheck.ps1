@@ -121,7 +121,7 @@ if($DomainJoined -eq $false)
 
 
 Start-Sleep -Seconds 60
- Write-Host "Checking queue"
+Write-Host "Checking queue"
 #Check if the Queue is filled
 do
 {
@@ -153,7 +153,7 @@ do
 
 $SFDInstallCheckstarttime = Get-Date 
 do{
-    Clear-Variable -name "sfdinstalled"
+    Clear-Variable -name "sfdinstalled" -ErrorAction SilentlyContinue
     $SFDInstalled = Get-wmiobject win32_product | Where-Object {$_.name -like "*SFDAgent*"} | select-object -property name,version,identifyingnumber
     Start-Sleep 10
 
