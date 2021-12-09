@@ -5,6 +5,7 @@ function Create-UEMAPIHeader
         [string] $APIPassword,
         [string] $APIKey,
         [string] $ContentType = "json",
+        [string] $AcceptType = "json",
         [int] $APIVersion = 1
     )
 
@@ -18,11 +19,9 @@ function Create-UEMAPIHeader
         $headers = New-Object "System.Collections.Generic.Dictionary[[String],[String]]"
         $headers.Add("aw-tenant-code", $APIKey)
         $headers.Add("Authorization", $auth)
-        $headers.Add("Accept", "application/$($ContentType);version=$($APIVersion)")
+        $headers.Add("Content-Type", $ContentType)
+        $headers.Add("Accept", "application/$($AcceptType);version=$($APIVersion)")
 
         return $headers
 
 }
-
-#Example
-$header = Create-UEMAPIHeader -APIUser $APIUser -APIPassword $APIPassword -APIKey $APIKey -ContentType "XML" 
