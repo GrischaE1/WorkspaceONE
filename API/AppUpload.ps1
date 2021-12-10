@@ -1,4 +1,4 @@
-﻿##########################################################################################
+##########################################################################################
 # You running this script/function means you will not blame the author(s) if this breaks your stuff. 
 # This script/function is provided AS IS without warranty of any kind. Author(s) disclaim all 
 # implied warranties including, without limitation, any implied warranties of merchantability or of 
@@ -15,7 +15,7 @@
 
 ##########################################################################################
 # Name: AppUpload.ps1
-# Version: 0.1
+# Version: 0.2
 # Date: 20.06.2021
 # Created by: Grischa Ernst gernst@vmware.com
 #
@@ -32,6 +32,7 @@
 ##########################################################################################
 #                                    Changelog 
 #
+# 0.2 - bugfixing
 # 0.1 - Inital creation
 ##########################################################################################
 
@@ -40,13 +41,12 @@
 #
 
 param(
-		[string]$SourcePath,
+	[string]$SourcePath,
         [string]$APIEndpoint,
         [string]$APIUser,
         [string]$APIPassword,
         [string]$APIKey,
         [string]$orgID
-
 	)
 
 ##########################################################################################
@@ -57,7 +57,8 @@ function Get-MSIInformation
 {
 
  param(
-        [System.IO.FileInfo]$MsiFile)
+        [System.IO.FileInfo]$MsiFile
+	)
  
 
     $com_object = New-Object -com WindowsInstaller.Installer 
@@ -86,7 +87,9 @@ function Get-MSIInformation
     "Manufacturer"=$msi_props.Item("Manufacturer");
     "ProductVersion"=$msi_props.Item("ProductVersion");
     "ProductCode"=$msi_props.Item("ProductCode");
-    "ProductLanguage"=$msi_props.Item("ProductLanguage")}
+    "ProductLanguage"=$msi_props.Item("ProductLanguage")
+    "FileName"=$MSIFile.Name
+    }
 
     $view.Close()
     
@@ -108,52 +111,57 @@ function Create-APIApplicationBody
 {
     param(
          $MSIDetails,
-         $orgID) 
+         $orgID,
+         $blobID) 
     
-    $APIbody = @{    
-        ApplicationName = "$($MSIDetails.ProductName)"
-        DeviceType = "12"
-        Platform = "WinRT"
-        BlobId = "$($upload.Value)"
-        PushMode = 0
-        EnableProvisioning = "true"
-        IsDependencyFile = "false"
-        LocationGroupId = "$($OrgID)"
-        SupportedProcessorArchitecture = "x86"
-        SupportedModels = @{
-                Model = @(@{
-                    ModelId = "83"
-                    ModelName = "Desktop"
-                })
-            }
-        
-            DeploymentOptions = @{
-                WhenToInstall = @{
-                    DataContingencies = ""
-                    DiskSpaceRequiredInKb = "0"
-                    DevicePowerRequired = "0"
-                    RamRequiredInMb = "0"
-                }
 
-                HowToInstall = @{
-                    InstallContext = "Device"
-                    InstallCommand = "msiexec /i putty-64bit-0.75-installer.msi /q"
-                    AdminPrivileges = "true"
-                    DeviceRestart = "DoNotRestart"
-                    RetryCount = "3"
-                    RetryIntervalInMinutes = "5"
-                    InstallTimeoutInMinutes = "60"
-                    InstallerRebootExitCode = "1641"
-                    InstallerSuccessExitCode = "0"
-                }
-                WhenToCallInstallComplete = @{
-                    UseAdditionalCriteria = "false"
+    $APIbody = '{
+        "ApplicationName" : "$($MSIDetails.ProductName)",
+        "DeviceType" : "12",
+        "Platform" : "WinRT",
+        "BlobId" : "$($blobID)",
+        "PushMode" : 0,
+        "EnableProvisioning" : "true",
+        "IsDependencyFile" : "false",
+        "LocationGroupId" : "$($OrgID)",
+        "SupportedProcessorArchitecture" : "x86",
+        "SupportedModels": {
+            "Model": [
+              {
+                "ModelId": 83,
+                "ModelName": "Desktop"
+              }
+            ]
+          },
+
+            "DeploymentOptions" : {
+                "WhenToInstall": {
+                    "DataContingencies": [],
+                    "DiskSpaceRequiredInKb": 0,
+                    "DevicePowerRequired": 0,
+                    "RamRequiredInMb": 0
+                },
+                "HowToInstall" : {
+                    "InstallContext" : "Device",
+                    "InstallCommand" : "msiexec /i  $($MSIDetails.Filename)  /q",
+                    "AdminPrivileges" : true,
+                    "DeviceRestart" : "DoNotRestart",
+                    "RetryCount": 3,
+                    "RetryIntervalInMinutes": 5,
+                    "InstallTimeoutInMinutes": 60,
+                    "InstallerRebootExitCode": "",
+                    "InstallerSuccessExitCode": "",
+                    "RestartDeadlineInDays": 0
+                },
+                "WhenToCallInstallComplete" : {
+                    "UseAdditionalCriteria" : false
                 }
         }
 
-    }
 
-        $json = $APIbody | ConvertTo-Json -Depth 10
+    }'
+
+        $json = $ExecutionContext.InvokeCommand.ExpandString($APIbody) #| ConvertTo-Json -Depth 10
         return $json
 }
 
@@ -170,7 +178,7 @@ function Create-UEMAPIHeader
     )
 
         #generate API Credentials
-        $UserNameWithPassword =  $APIUser + “:” + $APIPassword
+        $UserNameWithPassword =  $APIUser + ":" + $APIPassword
         $Encoding = [System.Text.Encoding]::ASCII.GetBytes($UserNameWithPassword)
         $EncodedString = [Convert]::ToBase64String($Encoding)
         $Auth = "Basic " + $EncodedString
@@ -190,7 +198,6 @@ function Create-UEMAPIHeader
 ##########################################################################################
 #                                   Start Script
 
-
 #Get all MSI's
 $MSIFiles = Get-ChildItem $SourcePath -Filter *.msi
 
@@ -200,6 +207,7 @@ foreach($file in $MSIFiles)
     #Get MSI information
     $MSIInfo = Get-MSIInformation -MsiFile "$($SourcePath)\$($file.name)"
      $MSIInfo
+
     #create header
     $header = Create-UEMAPIHeader -APIUser $APIUser -APIPassword $APIPassword -APIKey $APIKey -ContentType "octet-stream"
 
@@ -207,8 +215,8 @@ foreach($file in $MSIFiles)
     $url = "https://$($APIEndpoint)/api/mam/blobs/uploadblob?filename=$($file.name)&organizationgroupid=$($orgID)&moduleType=Application"
     $upload = Invoke-RestMethod $url -Method 'POST' -Headers $header  -InFile $file.FullName
 
-    
-    $appProperties = Create-APIApplicationBody -MSIDetails $MSIInfo -OrgID $orgID
+    Clear-Variable appProperties
+    $appProperties = Create-APIApplicationBody -MSIDetails $MSIInfo -OrgID $orgID -blobID $upload.Value
 
     #Generate Header
     $header = Create-UEMAPIHeader -APIUser $APIUser -APIPassword $APIPassword -APIKey $APIKey 
