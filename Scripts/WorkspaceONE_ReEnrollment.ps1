@@ -1,6 +1,7 @@
 param(
-    [Parameter(Mandatory = $false, ValueFromPipeline = $true, HelpMessage = "URL of the DS Server - e.g. ds137.awmdm.com for CN137")][String] $DSServerURL,
     [Parameter(Mandatory = $false, ValueFromPipeline = $true, HelpMessage = "If true - apps will stay on the device after un-enrollment")][Bool] $KeepAppsInstalled,
+    [Parameter(Mandatory = $false, ValueFromPipeline = $true, HelpMessage = "If true - apps will stay on the device after un-enrollment")][Bool] $Reenrolldevice,
+    [Parameter(Mandatory = $false, ValueFromPipeline = $true, HelpMessage = "URL of the DS Server - e.g. ds137.awmdm.com for CN137")][String] $DSServerURL,   
     [Parameter(Mandatory = $false, ValueFromPipeline = $true, HelpMessage = "Staginguser Username")][String] $UserName,
     [Parameter(Mandatory = $false, ValueFromPipeline = $true, HelpMessage = "Staginguser Password")][String] $UserPassword,
     [Parameter(Mandatory = $false, ValueFromPipeline = $true, HelpMessage = "Target OG ID")][String] $OGID
@@ -8,10 +9,11 @@ param(
 
 
 #Download the Intelligent HUB agent
-if (!(Test-Path C:\Temp)) { New-Item C:\Temp -ItemType Directory -Force }
-$WebClient = New-Object System.Net.WebClient
-$WebClient.DownloadFile("https://$($DSServerURL)/agents/ProtectionAgent_autoseed/airwatchagent.msi", "C:\temp\AirwatchAgent.msi")
-
+if ($Reenrolldevice -eq $true) {
+    if (!(Test-Path C:\Temp)) { New-Item C:\Temp -ItemType Directory -Force }
+    $WebClient = New-Object System.Net.WebClient
+    $WebClient.DownloadFile("https://$($DSServerURL)/agents/ProtectionAgent_autoseed/airwatchagent.msi", "C:\temp\AirwatchAgent.msi")
+}
 
 
 
@@ -39,7 +41,7 @@ Start-Sleep -Seconds 120
 #uninstall WS1 App
 Get-AppxPackage *AirWatchLLC* | Remove-AppxPackage 
  
-#Delte reg keys
+#Delete reg keys
 Remove-Item -Path HKLM:\SOFTWARE\Airwatch -Recurse -Force
 Remove-Item -Path HKLM:\SOFTWARE\AirwatchMDM -Recurse -Force
 
@@ -74,7 +76,6 @@ $path = "$env:ProgramData\VMware\SfdAgent"
 Remove-Item $path -Recurse -Force
 
 
-$EnrollmentKey = "7E24E531-10E4-4483-94FB-FA741F09A5E1"
 #Clean Scheduled Tasks - SFD
 Get-ScheduledTask -TaskPath "\Microsoft\Windows\EnterpriseMgmt\$($EnrollmentKey)\*" | Unregister-ScheduledTask  -Confirm:$false
 
@@ -101,5 +102,7 @@ $DeviceCerts | Where-Object { $_.Issuer -like "*AirWatch*" -or $_.Issuer -like "
 
 
 #Install Workspace One Agent
-$args = "/i C:\Temp\AirwatchAgent.msi /q ENROLL=Y SERVER=$($DSServerURL) LGName=$($OGID) USERNAME=$($UserName) PASSWORD=$($UserPassword) ASSIGNTOLOGGEDINUSER=Y DOWNLOADWSBUNDLE=FALSE IMAGE=N /LOG C:\Temp\WorkspaceONE.log"
-Start-Process C:\Windows\System32\msiexec.exe -ArgumentList $args -Wait
+if ($Reenrolldevice -eq $true) {
+    $args = "/i C:\Temp\AirwatchAgent.msi /q ENROLL=Y SERVER=$($DSServerURL) LGName=$($OGID) USERNAME=$($UserName) PASSWORD=$($UserPassword) ASSIGNTOLOGGEDINUSER=Y DOWNLOADWSBUNDLE=FALSE IMAGE=N /LOG C:\Temp\WorkspaceONE.log"
+    Start-Process C:\Windows\System32\msiexec.exe -ArgumentList $args -Wait
+}
