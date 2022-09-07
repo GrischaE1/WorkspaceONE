@@ -1,6 +1,6 @@
 param(
     [Parameter(Mandatory = $false, ValueFromPipeline = $true, HelpMessage = "If true - apps will stay on the device after un-enrollment")][Bool] $KeepAppsInstalled,
-    [Parameter(Mandatory = $false, ValueFromPipeline = $true, HelpMessage = "If true - apps will stay on the device after un-enrollment")][Bool] $Reenrolldevice,
+    [Parameter(Mandatory = $false, ValueFromPipeline = $true, HelpMessage = "If true - device gets re-enrolled")][Bool] $Reenrolldevice,
     [Parameter(Mandatory = $false, ValueFromPipeline = $true, HelpMessage = "URL of the DS Server - e.g. ds137.awmdm.com for CN137")][String] $DSServerURL,   
     [Parameter(Mandatory = $false, ValueFromPipeline = $true, HelpMessage = "Staginguser Username")][String] $UserName,
     [Parameter(Mandatory = $false, ValueFromPipeline = $true, HelpMessage = "Staginguser Password")][String] $UserPassword,
