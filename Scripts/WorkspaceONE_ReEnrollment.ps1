@@ -119,7 +119,7 @@ $DeviceCerts | Where-Object { $_.Issuer -like "*AirWatch*" -or $_.Issuer -like "
 
 
 #Install Workspace One Agent
-if ($Reenrolldevice -eq $true) {
+if ($Reenrolldevice -eq "true") {
     $args = "/i C:\Temp\AirwatchAgent.msi /q ENROLL=Y SERVER=$($DSServerURL) LGName=$($OGID) USERNAME=$($UserName) PASSWORD=$($UserPassword) ASSIGNTOLOGGEDINUSER=Y DOWNLOADWSBUNDLE=FALSE IMAGE=N /LOG C:\Temp\WorkspaceONE.log"
     Start-Process C:\Windows\System32\msiexec.exe -ArgumentList $args -Wait
 }
