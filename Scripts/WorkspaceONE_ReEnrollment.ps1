@@ -13,11 +13,11 @@
 ##########################################################################################
 
 #example: 
-#reenroll.ps1 -KeepAppsInstalled True -Reenrolldevice True -DSServerURL "ds137.awmdm.com" -UserName "StagingUser" -UserPassword "StagingPassword" -OGID "570" 
+#reenroll.ps1 -KeepAppsInstalled True -Reenrolldevice True -DSServerURL "ds137.awmdm.com" -UserName "StagingUser" -UserPassword "StagingPassword" -OGID "TestOG" 
 
 param(
-    [Parameter(Mandatory = $false, ValueFromPipeline = $true, HelpMessage = "If true - apps will stay on the device after un-enrollment")][Bool] $KeepAppsInstalled,
-    [Parameter(Mandatory = $false, ValueFromPipeline = $true, HelpMessage = "If true - device gets re-enrolled")][Bool] $Reenrolldevice,
+    [Parameter(Mandatory = $false, ValueFromPipeline = $true, HelpMessage = "If true - apps will stay on the device after un-enrollment")][String] $KeepAppsInstalled,
+    [Parameter(Mandatory = $false, ValueFromPipeline = $true, HelpMessage = "If true - device gets re-enrolled")][String] $Reenrolldevice,
     [Parameter(Mandatory = $false, ValueFromPipeline = $true, HelpMessage = "URL of the DS Server - e.g. ds137.awmdm.com for CN137")][String] $DSServerURL,   
     [Parameter(Mandatory = $false, ValueFromPipeline = $true, HelpMessage = "Staginguser Username")][String] $UserName,
     [Parameter(Mandatory = $false, ValueFromPipeline = $true, HelpMessage = "Staginguser Password")][String] $UserPassword,
@@ -26,7 +26,7 @@ param(
 
 
 #Download the Intelligent HUB agent
-if ($Reenrolldevice -eq $true) {
+if ($Reenrolldevice -eq "true") {
     if (!(Test-Path C:\Temp)) { New-Item C:\Temp -ItemType Directory -Force }
     $WebClient = New-Object System.Net.WebClient
     $WebClient.DownloadFile("https://$($DSServerURL)/agents/ProtectionAgent_autoseed/airwatchagent.msi", "C:\temp\AirwatchAgent.msi")
@@ -42,7 +42,7 @@ $EnrollmentKey = ([regex]::Match(($AirWatchMDMKey.PSPath), $pattern).Groups[1].V
 
 
 #Uninstall SFD Agent
-if ($KeepAppsInstalled -eq $true) {
+if ($KeepAppsInstalled -eq "true") {
     $SFDAgent = Get-WmiObject -Class win32_product -Filter "Name like '%SFD%'"
     $Arguments = "/x $($SFDAgent.IdentifyingNumber) /q /norestart"
     Start-Process msiexec -ArgumentList $Arguments -Wait 
