@@ -13,7 +13,7 @@
 ##########################################################################################
 
 #example: 
-#reenroll.ps1 -KeepAppsInstalled True -Reenrolldevice True -DSServerURL "ds137.awmdm.com" -UserName "StagingUser" -UserPassword "StagingPassword" -OGID "TestOG" 
+#reenroll.ps1 -KeepAppsInstalled "True" -Reenrolldevice "True" -DSServerURL "ds137.awmdm.com" -UserName "StagingUser" -UserPassword "StagingPassword" -OGID "TestOG" 
 
 param(
     [Parameter(Mandatory = $false, ValueFromPipeline = $true, HelpMessage = "If true - apps will stay on the device after un-enrollment")][String] $KeepAppsInstalled,
