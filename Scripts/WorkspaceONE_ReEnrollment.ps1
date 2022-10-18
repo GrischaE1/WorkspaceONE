@@ -49,7 +49,7 @@ if ($KeepAppsInstalled -eq "true") {
 }
 
 #Uninstall Agent - requires manual delete of device object in console
-$HUB = Get-WmiObject -Class win32_product -Filter "Name like '%Workspace ONE%'"
+$HUB = Get-WmiObject -Class win32_product -Filter "Name like '%Workspace ONE Intelligent%'"
 $Arguments = "/x $($HUB.IdentifyingNumber) /q /norestart"
 Start-Process msiexec -ArgumentList $Arguments -Wait 
 
