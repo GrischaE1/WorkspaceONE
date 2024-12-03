@@ -1,7 +1,3 @@
-Certainly! Below is a detailed summary of the script's functionality, outlining the different sections it covers and what specifically gets tested or validated. Additionally, I'll provide an example of how you would execute the script on a Windows device.
-
----
-
 ### **Script Summary**
 
 The provided PowerShell script is designed to validate the health of Mobile Device Management (MDM) services, specifically for environments using Workspace ONE, OMA-DM, and WNS configurations. The script performs several tests and validations to ensure proper connectivity, service health, task execution, and certificate validity related to MDM configurations. 
