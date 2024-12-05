@@ -156,7 +156,6 @@ function Measure-ScriptSection {
     return $result
 }
 
-
 # Function to Convert OMA-DM Timestamps
 function Convert-TimestampToDate {
     param ([string]$timestamp)
@@ -289,6 +288,31 @@ function Get-OMADMConnectionInfo {
 
     Write-Log "Starting retrieval of OMA-DM Connection Information..." -Severity "INFO"
 
+
+    # Define services related to OMA-DM communication
+    $servicesToCheck = @(
+        @{ Name = "Winmgmt"; DisplayName = "Windows Management Instrumentation (WMI)" },
+        @{ Name = "dmwappushservice"; DisplayName = "Device Management Wireless Application Protocol Push" },
+        @{ Name = "UsoSvc"; DisplayName = "Update Orchestrator Service" },
+        @{ Name = "WpnService"; DisplayName = "Windows Push Notification Service" }
+    )
+
+    foreach ($service in $servicesToCheck) {
+        try {
+            $serviceStatus = (Get-Service -Name $service.Name -ErrorAction SilentlyContinue).Status
+            if ($serviceStatus -eq "Running") {
+                Write-Log "$($service.DisplayName) is running." -Severity "INFO"
+                Add-Result -Category "OMA-DM Service Check" -Test "$($service.DisplayName) Status" -Result "Success" -Details "$($service.DisplayName) is running."
+            } else {
+                Write-Log "$($service.DisplayName) is not running." -Severity "WARNING"
+                Add-Result -Category "OMA-DM Service Check" -Test "$($service.DisplayName) Status" -Result "Failure" -Details "$($service.DisplayName) is not running."
+            }
+        } catch {
+            Write-Log "Error retrieving status for $($service.DisplayName): $($_.Exception.Message)" -Severity "ERROR"
+            Add-Result -Category "OMA-DM Service Check" -Test "$($service.DisplayName) Status" -Result "Failure" -Details "Error retrieving status: $($_.Exception.Message)"
+        }
+    }
+
     $connInfoPath = "HKLM:\Software\Microsoft\Provisioning\OMADM\Accounts\$activeMDMID\Protected\ConnInfo"
 
     try {
@@ -338,6 +362,7 @@ function Validate-ScheduledTasks {
 
     if (-not $activeMDMID) {
         Write-Log "Active MDM ID is not available. Skipping Scheduled Task Validation." -Severity "WARNING"
+        Add-Result -Category "Scheduled Task Validation" -Test "Active MDM ID Check" -Result "Failure" -Details "Active MDM ID is not available. Skipping Scheduled Task Validation."
         return
     }
 
@@ -351,11 +376,33 @@ function Validate-ScheduledTasks {
 
     foreach ($task in $tasks) {
         try {
+            # Retrieve task information
             $taskInfo = Get-ScheduledTaskInfo -TaskPath $taskPath -TaskName $task.Name -ErrorAction Stop
+            
+            # Log task details
             Write-Log "$($task.Description) - Last Runtime: $($taskInfo.LastRunTime)" -Severity "INFO"
             Write-Log "$($task.Description) - Last Result: $($taskInfo.LastTaskResult)" -Severity "INFO"
+            
+            # Determine if the task ran successfully
+            if ($taskInfo.LastTaskResult -eq 0) {
+                Add-Result -Category "Scheduled Task Validation" -Test "$($task.Description) Status" -Result "Success" -Details "Task ran successfully. Last Runtime: $($taskInfo.LastRunTime)"
+            } else {
+                Add-Result -Category "Scheduled Task Validation" -Test "$($task.Description) Status" -Result "Failure" -Details "Task failed or had issues. Last Result Code: $($taskInfo.LastTaskResult)"
+            }
+
+            # Check if the task has run in the last 8 hours (for the 8-hour sync task)
+            if ($task.Description -eq "8-hour sync") {
+                $timeDifference = (Get-Date) - [datetime]$taskInfo.LastRunTime
+                if ($timeDifference.TotalHours -le 8) {
+                    Add-Result -Category "Scheduled Task Validation" -Test "$($task.Description) Recent Run Check" -Result "Success" -Details "Task has run within the last 8 hours. Last Runtime: $($taskInfo.LastRunTime)"
+                } else {
+                    Add-Result -Category "Scheduled Task Validation" -Test "$($task.Description) Recent Run Check" -Result "Failure" -Details "Task has not run within the last 8 hours. Last Runtime: $($taskInfo.LastRunTime)"
+                }
+            }
         } catch {
+            # Log the task retrieval failure and add result to the summary
             Write-Log "Task '$($task.Name)' not found or could not be retrieved." -Severity "WARNING"
+            Add-Result -Category "Scheduled Task Validation" -Test "$($task.Description) Retrieval" -Result "Failure" -Details "Task '$($task.Name)' not found or could not be retrieved."
         }
     }
 }
@@ -671,7 +718,6 @@ function Add-Result {
 
 
 
-
 # Main Script Execution with Performance Measurement
 $global:scriptError = $false
 
@@ -713,4 +759,4 @@ if ($global:scriptError) {
 
 $severity = if ($global:exitCode -eq 0) { "INFO" } else { "ERROR" }
 Write-Log "Script completed with exit code $global:exitCode." -Severity $severity
-Exit $global:exitCode
+#Exit $global:exitCode
