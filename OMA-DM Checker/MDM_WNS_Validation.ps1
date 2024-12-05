@@ -65,11 +65,11 @@ param(
 
     # Include detailed logs in the output (default: enabled)
     [Parameter(HelpMessage = "Include detailed logs in the output (default: enabled)")]
-    [switch]$showDetailedLogs = $true,   # Enabled by default
+    [switch]$showDetailedLogs = $true, # Enabled by default
 
     # Create a separate log file for capturing script execution details (default: enabled)
     [Parameter(HelpMessage = "Create a separate log file for capturing script execution details (default: enabled)")]
-    [switch]$separateLogFile = $true,    # Enabled by default
+    [switch]$separateLogFile = $true, # Enabled by default
 
     # Enable summary output at the end of the script (default: enabled)
     [Parameter(HelpMessage = "Enable summary output at the end of the script (default: enabled)")]
@@ -142,7 +142,8 @@ function Measure-ScriptSection {
     try {
         # Execute the code in the script block and capture the result
         $result = & $code
-    } catch {
+    }
+    catch {
         Write-Log "Error while executing section: $sectionName. Error: $($_.Exception.Message)" -Severity "ERROR"
     }
 
@@ -177,7 +178,8 @@ function Convert-TimestampToDate {
 
         # Construct and return a DateTime object
         return Get-Date -Year $year -Month $month -Day $day -Hour $hour -Minute $minute -Second $second
-    } catch {
+    }
+    catch {
         Write-Log "Error converting timestamp: $($_.Exception.Message)" -Severity "ERROR"
         return $null
     }
@@ -188,10 +190,12 @@ function Get-MDMEnrollmentDetails {
     Write-Log "Starting retrieval of Current MDM User Output..." -Severity "INFO"
 
     $activeMDMID = (Get-ChildItem HKLM:\SOFTWARE\MICROSOFT\ENROLLMENTS | Where-Object {
-        $_.GetValue('ProviderId') -eq $providerID
-    }).Name | Split-Path -Leaf
+            $_.GetValue('ProviderId') -eq $providerID
+        }).Name | Split-Path -Leaf
 
     if ($activeMDMID) {
+        Add-Result -Category "MDM Enrollment Details" -Test "MDM Enrollment Found" -Result "Success" -Details "Active MDM ID found: $activeMDMID"
+
         try {
             $activeMDMUserSID = Get-ItemPropertyValue "HKLM:\SOFTWARE\MICROSOFT\ENROLLMENTS\$activeMDMID" -Name SID -ErrorAction Stop
             New-PSDrive HKU Registry HKEY_USERS -ErrorAction SilentlyContinue | Out-Null
@@ -205,21 +209,52 @@ function Get-MDMEnrollmentDetails {
                 Test-Path (Get-ItemPropertyValue "HKU:\$activeMDMUserSID\Volatile Environment" -Name USERPROFILE)
             }
 
+            # Log results
             Write-Log "Current active MDM ID:            $activeMDMID" -Severity "INFO"
+            Add-Result -Category "MDM Enrollment Details" -Test "Current Active MDM ID" -Result "Success" -Details "MDM ID: $activeMDMID"
+
             Write-Log "Current active MDM UserSID:       $activeMDMUserSID" -Severity "INFO"
+            Add-Result -Category "MDM Enrollment Details" -Test "Current Active MDM UserSID" -Result "Success" -Details "User SID: $activeMDMUserSID"
+
             Write-Log "User SID in Registry:             $registryTest" -Severity "INFO"
-            if ($MDMUserName) { Write-Log "Current active MDM Username:      $MDMUserName" -Severity "INFO" }
+            if ($registryTest -eq $true) {
+                Add-Result -Category "MDM Enrollment Details" -Test "User SID in Registry" -Result "Success" -Details "User SID exists in Registry: $registryTest"
+            }
+            else {
+                Add-Result -Category "MDM Enrollment Details" -Test "User SID in Registry" -Result "Failure" -Details "User SID does not exist in Registry."
+            }
+
+            if ($MDMUserName) {
+                Write-Log "Current active MDM Username:      $MDMUserName" -Severity "INFO"
+                Add-Result -Category "MDM Enrollment Details" -Test "MDM Username" -Result "Success" -Details "Username: $MDMUserName"
+            }
+            else {
+                Add-Result -Category "MDM Enrollment Details" -Test "MDM Username" -Result "Failure" -Details "No Username found"
+            }
+
             Write-Log "User Profile Path still active:   $userProfileTest" -Severity "INFO"
-        } catch {
+            if ($userProfileTest -eq $true) {
+                Add-Result -Category "MDM Enrollment Details" -Test "User Profile Path Active" -Result "Success" -Details "User Profile Path Active: $userProfileTest"
+            }
+            else {
+                Add-Result -Category "MDM Enrollment Details" -Test "User Profile Path Active" -Result "Failure" -Details "User Profile Path is not active."
+            }
+
+        }
+        catch {
             Write-Log "Error accessing registry key for Active MDM User SID: $($_.Exception.Message)" -Severity "ERROR"
+            Add-Result -Category "MDM Enrollment Details" -Test "Registry Access Error" -Result "Failure" -Details "Error accessing registry key for Active MDM User SID: $($_.Exception.Message)"
             $global:scriptError = $true
         }
-    } else {
+    }
+    else {
         Write-Log "No active MDM enrollment found." -Severity "WARNING"
+        Add-Result -Category "MDM Enrollment Details" -Test "MDM Enrollment Found" -Result "Failure" -Details "No active MDM enrollment found."
     }
 
     return $activeMDMID
 }
+
 
 # Function to Get Workspace ONE Intelligent Hub Status
 function Get-WorkspaceONEHubStatus {
@@ -237,7 +272,8 @@ function Get-WorkspaceONEHubStatus {
         if ($status -eq "Running") {
             Write-Log "$($service.DisplayName): $status" -Severity "INFO"
             Add-Result -Category "Workspace ONE Hub Status" -Test "$($service.DisplayName) Status" -Result "Success" -Details "$($service.DisplayName) is running"
-        } else {
+        }
+        else {
             Write-Log "$($service.DisplayName): Not Running" -Severity "WARNING"
             Add-Result -Category "Workspace ONE Hub Status" -Test "$($service.DisplayName) Status" -Result "Failure" -Details "$($service.DisplayName) is not running"
         }
@@ -250,7 +286,8 @@ function Get-WorkspaceONEHubStatus {
         if ($running) {
             Write-Log "$process Process: Running" -Severity "INFO"
             Add-Result -Category "Workspace ONE Hub Status" -Test "$process Process Check" -Result "Success" -Details "$process is running"
-        } else {
+        }
+        else {
             Write-Log "$process Process: Not Running" -Severity "WARNING"
             Add-Result -Category "Workspace ONE Hub Status" -Test "$process Process Check" -Result "Failure" -Details "$process is not running"
         }
@@ -263,11 +300,13 @@ function Get-WorkspaceONEHubStatus {
             $agentStartTime = Get-Date $agentStatus.Substring(8)
             Write-Log "AirWatch Agent Started at $agentStartTime" -Severity "INFO"
             Add-Result -Category "Workspace ONE Hub Status" -Test "AirWatch Agent Status" -Result "Success" -Details "AirWatch Agent started at $agentStartTime"
-        } else {
+        }
+        else {
             Write-Log "AirWatch Agent not started." -Severity "WARNING"
             Add-Result -Category "Workspace ONE Hub Status" -Test "AirWatch Agent Status" -Result "Failure" -Details "AirWatch Agent not started"
         }
-    } catch {
+    }
+    catch {
         Write-Log "Unable to retrieve AirWatch Agent Status." -Severity "ERROR"
         Add-Result -Category "Workspace ONE Hub Status" -Test "AirWatch Agent Status Retrieval" -Result "Failure" -Details "Unable to retrieve AirWatch Agent Status: $($_.Exception.Message)"
     }
@@ -303,11 +342,13 @@ function Get-OMADMConnectionInfo {
             if ($serviceStatus -eq "Running") {
                 Write-Log "$($service.DisplayName) is running." -Severity "INFO"
                 Add-Result -Category "OMA-DM Service Check" -Test "$($service.DisplayName) Status" -Result "Success" -Details "$($service.DisplayName) is running."
-            } else {
+            }
+            else {
                 Write-Log "$($service.DisplayName) is not running." -Severity "WARNING"
                 Add-Result -Category "OMA-DM Service Check" -Test "$($service.DisplayName) Status" -Result "Failure" -Details "$($service.DisplayName) is not running."
             }
-        } catch {
+        }
+        catch {
             Write-Log "Error retrieving status for $($service.DisplayName): $($_.Exception.Message)" -Severity "ERROR"
             Add-Result -Category "OMA-DM Service Check" -Test "$($service.DisplayName) Status" -Result "Failure" -Details "Error retrieving status: $($_.Exception.Message)"
         }
@@ -323,7 +364,8 @@ function Get-OMADMConnectionInfo {
             $lastAttemptDate = Convert-TimestampToDate -timestamp $lastAttemptTimestamp
             Write-Log "Last connection attempt: $lastAttemptDate" -Severity "INFO"
             Add-Result -Category "OMA-DM Connection Info" -Test "Last Connection Attempt" -Result "Success" -Details "Last connection attempt was at: $lastAttemptDate"
-        } else {
+        }
+        else {
             Write-Log "No record of the last connection attempt found." -Severity "WARNING"
             Add-Result -Category "OMA-DM Connection Info" -Test "Last Connection Attempt" -Result "Failure" -Details "No record of the last connection attempt found"
         }
@@ -343,14 +385,17 @@ function Get-OMADMConnectionInfo {
             # Add a result for the elapsed time since last connection
             if ($timeDifference.TotalHours -le 8) {
                 Add-Result -Category "OMA-DM Connection Info" -Test "Recent Successful Connection" -Result "Success" -Details "Last successful connection was within the past 8 hours"
-            } else {
+            }
+            else {
                 Add-Result -Category "OMA-DM Connection Info" -Test "Recent Successful Connection" -Result "Failure" -Details "Last successful connection was more than 8 hours ago"
             }
-        } else {
+        }
+        else {
             Write-Log "No record of the last successful connection found." -Severity "WARNING"
             Add-Result -Category "OMA-DM Connection Info" -Test "Last Successful Connection" -Result "Failure" -Details "No record of the last successful connection found"
         }
-    } catch {
+    }
+    catch {
         Write-Log "Error retrieving OMA-DM Connection Info: $($_.Exception.Message)" -Severity "ERROR"
         Add-Result -Category "OMA-DM Connection Info" -Test "OMA-DM Retrieval Error" -Result "Failure" -Details "Error retrieving OMA-DM Connection Info: $($_.Exception.Message)"
     }
@@ -386,7 +431,8 @@ function Validate-ScheduledTasks {
             # Determine if the task ran successfully
             if ($taskInfo.LastTaskResult -eq 0) {
                 Add-Result -Category "Scheduled Task Validation" -Test "$($task.Description) Status" -Result "Success" -Details "Task ran successfully. Last Runtime: $($taskInfo.LastRunTime)"
-            } else {
+            }
+            else {
                 Add-Result -Category "Scheduled Task Validation" -Test "$($task.Description) Status" -Result "Failure" -Details "Task failed or had issues. Last Result Code: $($taskInfo.LastTaskResult)"
             }
 
@@ -395,11 +441,13 @@ function Validate-ScheduledTasks {
                 $timeDifference = (Get-Date) - [datetime]$taskInfo.LastRunTime
                 if ($timeDifference.TotalHours -le 8) {
                     Add-Result -Category "Scheduled Task Validation" -Test "$($task.Description) Recent Run Check" -Result "Success" -Details "Task has run within the last 8 hours. Last Runtime: $($taskInfo.LastRunTime)"
-                } else {
+                }
+                else {
                     Add-Result -Category "Scheduled Task Validation" -Test "$($task.Description) Recent Run Check" -Result "Failure" -Details "Task has not run within the last 8 hours. Last Runtime: $($taskInfo.LastRunTime)"
                 }
             }
-        } catch {
+        }
+        catch {
             # Log the task retrieval failure and add result to the summary
             Write-Log "Task '$($task.Name)' not found or could not be retrieved." -Severity "WARNING"
             Add-Result -Category "Scheduled Task Validation" -Test "$($task.Description) Retrieval" -Result "Failure" -Details "Task '$($task.Name)' not found or could not be retrieved."
@@ -427,7 +475,8 @@ function Get-WNSStatus {
         Write-Log "WNS Service Status: $wnsServiceStatus" -Severity "INFO"
         if ($wnsServiceStatus -eq "Running") {
             Add-Result -Category "WNS Status" -Test "WNS Service Status Check" -Result "Success" -Details "WNS Service is running."
-        } else {
+        }
+        else {
             Add-Result -Category "WNS Status" -Test "WNS Service Status Check" -Result "Failure" -Details "WNS Service is not running."
         }
 
@@ -436,7 +485,8 @@ function Get-WNSStatus {
         Write-Log "WNS Status: $wnsStatus" -Severity "INFO"
         if ($wnsStatus -eq 0) {
             Add-Result -Category "WNS Status" -Test "WNS Status Check" -Result "Success" -Details "WNS Status indicates no issues (Status Code: $wnsStatus)."
-        } else {
+        }
+        else {
             Add-Result -Category "WNS Status" -Test "WNS Status Check" -Result "Failure" -Details "WNS Status indicates an issue (Status Code: $wnsStatus)."
         }
 
@@ -454,11 +504,13 @@ function Get-WNSStatus {
         if ((Get-Date) -le $channelExpiryTime -and $wnsStatus -eq 0 -and $wnsServiceStatus -eq "Running") {
             Write-Log "WNS Channel is active and healthy" -Severity "INFO"
             Add-Result -Category "WNS Status" -Test "WNS Channel Health Check" -Result "Success" -Details "WNS Channel is active and healthy."
-        } else {
+        }
+        else {
             Write-Log "WNS Channel is expired or unhealthy" -Severity "WARNING"
             Add-Result -Category "WNS Status" -Test "WNS Channel Health Check" -Result "Failure" -Details "WNS Channel is expired or unhealthy."
         }
-    } catch {
+    }
+    catch {
         Write-Log "Error retrieving WNS status: $($_.Exception.Message)" -Severity "ERROR"
         Add-Result -Category "WNS Status" -Test "WNS Status Retrieval Error" -Result "Failure" -Details "Error retrieving WNS status: $($_.Exception.Message)"
     }
@@ -483,15 +535,18 @@ function Validate-MDMCertificates {
                 $daysUntilExpiration = ($cert.NotAfter - (Get-Date)).Days
                 if ($daysUntilExpiration -gt 0) {
                     Add-Result -Category "MDM Certificates" -Test "Certificate Validity Check" -Result "Success" -Details "Certificate '$($cert.Subject)' is valid. Expiration: $($cert.NotAfter)"
-                } else {
+                }
+                else {
                     Add-Result -Category "MDM Certificates" -Test "Certificate Validity Check" -Result "Failure" -Details "Certificate '$($cert.Subject)' has expired. Expiration: $($cert.NotAfter)"
                 }
             }
-        } else {
+        }
+        else {
             Write-Log "No MDM Certificates found." -Severity "WARNING"
             Add-Result -Category "MDM Certificates" -Test "Certificate Presence Check" -Result "Failure" -Details "No MDM Certificates found."
         }
-    } catch {
+    }
+    catch {
         Write-Log "Error retrieving MDM Certificates: $($_.Exception.Message)" -Severity "ERROR"
         Add-Result -Category "MDM Certificates" -Test "Certificate Retrieval Error" -Result "Failure" -Details "Error retrieving MDM Certificates: $($_.Exception.Message)"
     }
@@ -512,10 +567,12 @@ function Get-CategorizedEventLogs {
             Write-Log "Number of Error events: $errorCount" -Severity "ERROR"
             Write-Log "Number of Warning events: $warningCount" -Severity "WARNING"
             Write-Log "Number of Information events: $infoCount" -Severity "INFO"
-        } else {
+        }
+        else {
             Write-Log "No events found in $eventLogName." -Severity "INFO"
         }
-    } catch {
+    }
+    catch {
         Write-Log "Error accessing MDM Event Logs: $($_.Exception.Message)" -Severity "ERROR"
     }
 }
@@ -531,7 +588,8 @@ function Get-MDMEventLogs {
         foreach ($event in $events) {
             Write-Log "Event ID: $($event.Id) - $($event.Message)" -Severity "INFO"
         }
-    } catch {
+    }
+    catch {
         Write-Log "Error accessing MDM Event Logs: $($_.Exception.Message)" -Severity "ERROR"
     }
 }
@@ -566,23 +624,28 @@ function Validate-MDMEnrollmentState {
                     if ($response.StatusCode -eq 200) {
                         Write-Log "URL is reachable: $baseURL" -Severity "INFO"
                         Add-Result -Category "MDM Enrollment State" -Test "URL Reachability" -Result "Success" -Details "URL is reachable: $baseURL"
-                    } else {
+                    }
+                    else {
                         Write-Log "URL responded but with unexpected status code: $($response.StatusCode)" -Severity "WARNING"
                         Add-Result -Category "MDM Enrollment State" -Test "URL Reachability" -Result "Warning" -Details "URL responded with status code: $($response.StatusCode)"
                     }
-                } catch {
+                }
+                catch {
                     Write-Log "URL is not reachable: $baseURL. Error: $($_.Exception.Message)" -Severity "ERROR"
                     Add-Result -Category "MDM Enrollment State" -Test "URL Reachability" -Result "Failure" -Details "URL is not reachable: $baseURL. Error: $($_.Exception.Message)"
                 }
-            } else {
+            }
+            else {
                 Write-Log "Unable to parse base URL from discovery URL: $discoveryURL" -Severity "WARNING"
                 Add-Result -Category "MDM Enrollment State" -Test "URL Parsing" -Result "Failure" -Details "Unable to parse base URL from discovery URL: $discoveryURL"
             }
-        } else {
+        }
+        else {
             Write-Log "No Discovery Service URL found for MDM Enrollment." -Severity "WARNING"
             Add-Result -Category "MDM Enrollment State" -Test "Discovery URL Check" -Result "Failure" -Details "No Discovery Service URL found for MDM Enrollment."
         }
-    } catch {
+    }
+    catch {
         Write-Log "Error validating MDM Enrollment State: $($_.Exception.Message)" -Severity "ERROR"
         Add-Result -Category "MDM Enrollment State" -Test "Enrollment State Validation" -Result "Failure" -Details "Error validating MDM Enrollment State: $($_.Exception.Message)"
     }
@@ -645,15 +708,18 @@ function Check-AWCMCommunication {
             if ($timeDifference.TotalHours -le 8) {
                 Write-Log "Last successful communication was within the past 8 hours." -Severity "INFO"
                 Add-Result -Category "AWCM Communication Check" -Test "Recent Communication Check" -Result "Success" -Details "Last successful communication was within the past 8 hours"
-            } else {
+            }
+            else {
                 Write-Log "Warning: Last successful communication was more than 8 hours ago." -Severity "WARNING"
                 Add-Result -Category "AWCM Communication Check" -Test "Recent Communication Check" -Result "Failure" -Details "Last successful communication was more than 8 hours ago"
             }
-        } else {
+        }
+        else {
             Write-Log "Warning: Unable to determine the timestamp of the last successful communication." -Severity "WARNING"
             Add-Result -Category "AWCM Communication Check" -Test "Timestamp Check" -Result "Failure" -Details "Unable to determine the timestamp of the last successful communication"
         }
-    } else {
+    }
+    else {
         Write-Log "No successful communication detected in the log file." -Severity "WARNING"
         Write-Log "Successful Responses: $successfulResponses, Post Requests: $postRequests" -Severity "WARNING"
         Add-Result -Category "AWCM Communication Check" -Test "Successful Communication" -Result "Failure" -Details "Successful Responses: $successfulResponses, Post Requests: $postRequests"
@@ -664,8 +730,8 @@ function Check-AWCMCommunication {
 function Print-FinalSummary {
     param (
         [Parameter(Mandatory = $false)]
-        [switch]$UseGridView,  # Switch to enable Out-GridView for interactive display
-        [switch]$SaveToFile,   # Switch to save the summary to a text file
+        [switch]$UseGridView, # Switch to enable Out-GridView for interactive display
+        [switch]$SaveToFile, # Switch to save the summary to a text file
         [string]$FilePath = "C:\Logs\MDM_WNS_Summary.txt"  # Default path for the output file if $SaveToFile is specified
     )
 
@@ -677,15 +743,18 @@ function Print-FinalSummary {
         if ($UseGridView) {
             # Display the summary in Out-GridView for better user interactivity
             $global:outputResults | Out-GridView -Title "MDM & WNS Validation Summary"
-        } elseif ($SaveToFile) {
+        }
+        elseif ($SaveToFile) {
             # Save the summary to a text file
             $global:outputResults | Format-Table -AutoSize | Out-String | Set-Content -Path $FilePath
             Write-Host "Summary has been saved to $FilePath" -ForegroundColor Green
-        } else {
+        }
+        else {
             # Default: Display in the console
             $global:outputResults | Format-Table -AutoSize
         }
-    } else {
+    }
+    else {
         Write-Host "No results to display." -ForegroundColor Yellow
     }
 }
@@ -693,9 +762,9 @@ function Print-FinalSummary {
 # Function to add the result for each category and store it in the results array
 function Add-Result {
     param (
-        [string]$Category,    # The category of the test (e.g., "OMA-DM Connection Info")
-        [string]$Test,        # The specific test being performed (e.g., "Last Successful Connection")
-        [string]$Result,      # The result of the test (e.g., "Success" or "Failure")
+        [string]$Category, # The category of the test (e.g., "OMA-DM Connection Info")
+        [string]$Test, # The specific test being performed (e.g., "Last Successful Connection")
+        [string]$Result, # The result of the test (e.g., "Success" or "Failure")
         [string]$Details = "" # Optional details about the test result
     )
 
