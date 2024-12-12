@@ -1,3 +1,48 @@
+<#
+===============================================================================
+Script Name: Install.ps1
+Description: Sets up the Workspace ONE Recovery Solution by copying files and 
+creating a scheduled task for validation and recovery.
+
+Author:      Grischa Ernst
+Date:        2024-12-12
+Version:     1.0
+===============================================================================
+
+DISCLAIMER:
+This script is provided "as is," without warranty of any kind, express or implied, 
+including but not limited to the warranties of merchantability, fitness for a 
+particular purpose, and noninfringement. In no event shall the authors or 
+copyright holders be liable for any claim, damages, or other liability, whether 
+in an action of contract, tort, or otherwise, arising from, out of, or in 
+connection with the script or the use or other dealings in the script.
+
+This script is designed for educational and operational use. Use it at your 
+own risk and ensure you understand its implications before running in 
+production environments.
+===============================================================================
+
+USAGE:
+.\Install.ps1 -ExpectedHash "<HashValue>" -DayOfWeek "Monday" -TimeOfDay "14:00:00" 
+              -DestinationPath "C:\Windows\UEMRecovery"
+===============================================================================
+
+PARAMETERS:
+- DayOfWeek: Specifies the day to run the scheduled task (default: Thursday).
+- TimeOfDay: Specifies the time to run the scheduled task (default: 08:00:00).
+- DestinationPath: Path where recovery scripts will be stored 
+                   (default: C:\Windows\UEMRecovery).
+- ExpectedHash: SHA-256 hash of the 'ws1_autorepair.ps1' script to validate its integrity.
+===============================================================================
+
+NOTES:
+- Ensure administrative privileges before execution.
+- Test thoroughly in a non-production environment.
+===============================================================================
+#>
+
+
+
 param (
     [Parameter(Mandatory = $false)]
     [ValidateSet("Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday")]
@@ -18,8 +63,13 @@ param (
 # Variables
 $taskName = "WorkspaceONE Autorepair"
 $scriptPath = "$($DestinationPath)\ws1_autorepair.ps1"
-#$dayOfWeek = "Monday"  # Specify the day of the week (e.g., Monday)
-#$timeOfDay = "14:00:00" # Set the time to run the task
+
+
+# Check for Existing Scheduled Task
+if (Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue) {
+    Write-Warning "Scheduled task '$taskName' already exists. It will be updated."
+    Unregister-ScheduledTask -TaskName $taskName -Confirm:$false
+}
 
 # Create an action to run the PowerShell script
 $action = New-ScheduledTaskAction -Execute "powershell.exe" -Argument "-NoProfile -ExecutionPolicy Bypass -File `"$scriptPath`" -ExpectedHash $expectedHash"

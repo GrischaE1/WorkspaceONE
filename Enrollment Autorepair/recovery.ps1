@@ -1,5 +1,44 @@
-$WSOStagingUser = "stagingWS1"
-$WSOStagingPW = 'Pa$$w0rd'
+<#
+===============================================================================
+Script Name: recovery.ps1
+Description: Performs unenrollment of Workspace ONE, removes all associated 
+artifacts (applications, registry keys, certificates, etc.), and re-enrolls 
+the device into Workspace ONE.
+
+Author:      Grischa Ernst
+Date:        2024-12-12
+Version:     1.0
+===============================================================================
+
+DISCLAIMER:
+This script is provided "as is," without warranty of any kind, express or implied, 
+including but not limited to the warranties of merchantability, fitness for a 
+particular purpose, and noninfringement. In no event shall the authors or 
+copyright holders be liable for any claim, damages, or other liability, whether 
+in an action of contract, tort, or otherwise, arising from, out of, or in 
+connection with the script or the use or other dealings in the script.
+
+This script is designed for educational and operational use. Use it at your 
+own risk and ensure you understand its implications before running in 
+production environments.
+===============================================================================
+
+USAGE:
+.\recovery.ps1
+===============================================================================
+
+NOTES:
+- Automatically downloads the Workspace ONE Agent and re-enrolls the device.
+- Removes all previous MDM configurations, applications, and certificates.
+- Includes hardcoded staging credentials for enrollment—replace with secure 
+  alternatives for production use.
+- Requires administrative privileges to execute.
+===============================================================================
+#>
+
+
+$WSOStagingUser = "test"
+$WSOStagingPW = 'test'
 $WSOOGID = "WS1"
 $WSOServer = "ds1831.awmdm.com"
 

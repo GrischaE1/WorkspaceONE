@@ -1,3 +1,47 @@
+<#
+===============================================================================
+Script Name: ws1_autorepair.ps1
+Description: Validates the Workspace ONE environment by checking MDM enrollment, 
+scheduled tasks, and Workspace ONE services. Automatically triggers recovery 
+if issues are detected.
+
+Author:      Grischa Ernst
+Date:        2024-12-12
+Version:     1.0
+===============================================================================
+
+DISCLAIMER:
+This script is provided "as is," without warranty of any kind, express or implied, 
+including but not limited to the warranties of merchantability, fitness for a 
+particular purpose, and noninfringement. In no event shall the authors or 
+copyright holders be liable for any claim, damages, or other liability, whether 
+in an action of contract, tort, or otherwise, arising from, out of, or in 
+connection with the script or the use or other dealings in the script.
+
+This script is designed for educational and operational use. Use it at your 
+own risk and ensure you understand its implications before running in 
+production environments.
+===============================================================================
+
+USAGE:
+.\ws1_autorepair.ps1 -providerID "AirwatchMDM" -logFilePath "C:\Logs\Log.txt" 
+                     -ExpectedHash "<HashValue>"
+===============================================================================
+
+PARAMETERS:
+- providerID: Specifies the MDM provider (default: AirwatchMDM).
+- logFilePath: Path for saving logs (default: C:\Windows\UEMRecovery\Logs\MDM_WNS_Validation_Log.txt).
+- ExpectedHash: Expected SHA-256 hash of the script for integrity verification.
+===============================================================================
+
+NOTES:
+- Requires administrative privileges to execute.
+- Automatically triggers `recovery.ps1` if validation fails.
+- Logs are created at the specified `logFilePath` for troubleshooting.
+===============================================================================
+#>
+
+
 param(
     # Specify the MDM provider ID (e.g., "AirwatchMDM", "IntuneMDM", "CustomMDM")
     [ValidateSet("AirwatchMDM", "IntuneMDM", "CustomMDM")]
@@ -15,11 +59,12 @@ param(
 
 
 # Start PowerShell Transcript to Capture Console Output
-if ($separateLogFile) {
+if ($logFilePath) {
+    Stop-Transcript -ErrorAction SilentlyContinue
     if (Test-Path $logFilePath) {
         Remove-Item -Path $logFilePath -Force
     }
-
+    
     Start-Transcript -Path $logFilePath -NoClobber -ErrorAction SilentlyContinue
 }
 
@@ -57,32 +102,6 @@ function Write-ConsoleLog {
     }
 }
 
-# Function to add the result for each category and store it in the results array
-function Add-Result {
-    param (
-        [string]$Category, # The category of the test (e.g., "OMA-DM Connection Info")
-        [string]$Test, # The specific test being performed (e.g., "Last Successful Connection")
-        [string]$Result, # The result of the test (e.g., "Success" or "Failure")
-        [string]$Details = "" # Optional details about the test result
-    )
-
-    # Ensure $global:outputResults is treated as an array
-    if ($null -eq $global:outputResults) {
-        $global:outputResults = @()
-    }
-
-    # Add a custom object to the output results array
-    $global:outputResults += [PSCustomObject]@{
-        Category = $Category
-        Test     = $Test
-        Result   = $Result
-        Details  = $Details
-    }
-
-    # Debug to verify if the result was added correctly
-    #Write-Host "Add-Result Called: Added Result to outputResults (Total Count Now: $($global:outputResults.Count))" -ForegroundColor Green
-}
-
 
 # Function to Get the Active MDM Enrollment Details
 function Get-MDMEnrollmentDetails {
@@ -95,7 +114,6 @@ function Get-MDMEnrollmentDetails {
         }).Name | Split-Path -Leaf
 
     if ($activeMDMID) {
-        Add-Result -Category "MDM Enrollment Details" -Test "MDM Enrollment Found" -Result "Success" -Details "Active MDM ID found: $activeMDMID"
 
         try {
             $activeMDMUserSID = Get-ItemPropertyValue "HKLM:\SOFTWARE\MICROSOFT\ENROLLMENTS\$activeMDMID" -Name SID -ErrorAction Stop
@@ -112,49 +130,39 @@ function Get-MDMEnrollmentDetails {
 
             # Log results
             Write-Log "Current active MDM ID:            $activeMDMID" -Severity "INFO"
-            Add-Result -Category "MDM Enrollment Details" -Test "Current Active MDM ID" -Result "Success" -Details "MDM ID: $activeMDMID"
 
             Write-Log "Current active MDM UserSID:       $activeMDMUserSID" -Severity "INFO"
-            Add-Result -Category "MDM Enrollment Details" -Test "Current Active MDM UserSID" -Result "Success" -Details "User SID: $activeMDMUserSID"
 
             Write-Log "User SID in Registry:             $registryTest" -Severity "INFO"
             if ($registryTest -eq $true) {
-                Add-Result -Category "MDM Enrollment Details" -Test "User SID in Registry" -Result "Success" -Details "User SID exists in Registry: $registryTest"
             }
             else {
-                Add-Result -Category "MDM Enrollment Details" -Test "User SID in Registry" -Result "Failure" -Details "User SID does not exist in Registry."
                 $MDMError = $true
             }
 
             if ($MDMUserName) {
                 Write-Log "Current active MDM Username:      $MDMUserName" -Severity "INFO"
-                Add-Result -Category "MDM Enrollment Details" -Test "MDM Username" -Result "Success" -Details "Username: $MDMUserName"
             }
             else {
-                Add-Result -Category "MDM Enrollment Details" -Test "MDM Username" -Result "Failure" -Details "No Username found"
                 $MDMError = $true
             }
 
             Write-Log "User Profile Path still active:   $userProfileTest" -Severity "INFO"
             if ($userProfileTest -eq $true) {
-                Add-Result -Category "MDM Enrollment Details" -Test "User Profile Path Active" -Result "Success" -Details "User Profile Path Active: $userProfileTest"
             }
             else {
-                Add-Result -Category "MDM Enrollment Details" -Test "User Profile Path Active" -Result "Failure" -Details "User Profile Path is not active."
                 $MDMError = $true
             }
 
         }
         catch {
             Write-Log "Error accessing registry key for Active MDM User SID: $($_.Exception.Message)" -Severity "ERROR"
-            Add-Result -Category "MDM Enrollment Details" -Test "Registry Access Error" -Result "Failure" -Details "Error accessing registry key for Active MDM User SID: $($_.Exception.Message)"
             $global:scriptError = $true
             $MDMError = $true
         }
     }
     else {
         Write-Log "No active MDM enrollment found." -Severity "WARNING"
-        Add-Result -Category "MDM Enrollment Details" -Test "MDM Enrollment Found" -Result "Failure" -Details "No active MDM enrollment found."
         $MDMError = $true
         $activeMDMID = 0
     }
@@ -171,7 +179,6 @@ function Test-ScheduledTasks {
 
     if (-not $activeMDMID) {
         Write-Log "Active MDM ID is not available. Skipping Scheduled Task Validation." -Severity "WARNING"
-        Add-Result -Category "Scheduled Task Validation" -Test "Active MDM ID Check" -Result "Failure" -Details "Active MDM ID is not available. Skipping Scheduled Task Validation."
         $ScheduledTaskError = $true
         return $ScheduledTaskError
     }
@@ -195,10 +202,8 @@ function Test-ScheduledTasks {
             
             # Determine if the task ran successfully
             if ($taskInfo.LastTaskResult -eq 0) {
-                Add-Result -Category "Scheduled Task Validation" -Test "$($task.Description) Status" -Result "Success" -Details "Task ran successfully. Last Runtime: $($taskInfo.LastRunTime)"
             }
             else {
-                Add-Result -Category "Scheduled Task Validation" -Test "$($task.Description) Status" -Result "Failure" -Details "Task failed or had issues. Last Result Code: $($taskInfo.LastTaskResult)"
                 $ScheduledTaskError = $true
             }
 
@@ -206,10 +211,8 @@ function Test-ScheduledTasks {
             if ($task.Description -eq "8-hour sync") {
                 $timeDifference = (Get-Date) - [datetime]$taskInfo.LastRunTime
                 if ($timeDifference.TotalHours -le 8) {
-                    Add-Result -Category "Scheduled Task Validation" -Test "$($task.Description) Recent Run Check" -Result "Success" -Details "Task has run within the last 8 hours. Last Runtime: $($taskInfo.LastRunTime)"
                 }
                 else {
-                    Add-Result -Category "Scheduled Task Validation" -Test "$($task.Description) Recent Run Check" -Result "Failure" -Details "Task has not run within the last 8 hours. Last Runtime: $($taskInfo.LastRunTime)"
                     $ScheduledTaskError = $true
                 }
             }
@@ -217,7 +220,6 @@ function Test-ScheduledTasks {
         catch {
             # Log the task retrieval failure and add result to the summary
             Write-Log "Task '$($task.Name)' not found or could not be retrieved." -Severity "WARNING"
-            Add-Result -Category "Scheduled Task Validation" -Test "$($task.Description) Retrieval" -Result "Failure" -Details "Task '$($task.Name)' not found or could not be retrieved."
             $ScheduledTaskError = $true
         }
     }
@@ -242,11 +244,9 @@ function Get-WorkspaceONEHubStatus {
         
         if ($status -eq "Running") {
             Write-Log "$($service.DisplayName): $status" -Severity "INFO"
-            Add-Result -Category "Workspace ONE Hub Status" -Test "$($service.DisplayName) Status" -Result "Success" -Details "$($service.DisplayName) is running"
         }
         else {
             Write-Log "$($service.DisplayName): Not Running" -Severity "WARNING"
-            Add-Result -Category "Workspace ONE Hub Status" -Test "$($service.DisplayName) Status" -Result "Failure" -Details "$($service.DisplayName) is not running"
             $IntelligentHubError = $True
         }
     }
@@ -257,11 +257,9 @@ function Get-WorkspaceONEHubStatus {
         $running = Get-Process -Name $process -ErrorAction SilentlyContinue
         if ($running) {
             Write-Log "$process Process: Running" -Severity "INFO"
-            Add-Result -Category "Workspace ONE Hub Status" -Test "$process Process Check" -Result "Success" -Details "$process is running"
         }
         else {
             Write-Log "$process Process: Not Running" -Severity "WARNING"
-            Add-Result -Category "Workspace ONE Hub Status" -Test "$process Process Check" -Result "Failure" -Details "$process is not running"
             $IntelligentHubError = $True
         }
     }
@@ -272,17 +270,14 @@ function Get-WorkspaceONEHubStatus {
         if ($agentStatus -like "Started*") {
             $agentStartTime = Get-Date $agentStatus.Substring(8)
             Write-Log "AirWatch Agent Started at $agentStartTime" -Severity "INFO"
-            Add-Result -Category "Workspace ONE Hub Status" -Test "AirWatch Agent Status" -Result "Success" -Details "AirWatch Agent started at $agentStartTime"
         }
         else {
             Write-Log "AirWatch Agent not started." -Severity "WARNING"
-            Add-Result -Category "Workspace ONE Hub Status" -Test "AirWatch Agent Status" -Result "Failure" -Details "AirWatch Agent not started"
             $IntelligentHubError = $True
         }
     }
     catch {
         Write-Log "Unable to retrieve AirWatch Agent Status." -Severity "ERROR"
-        Add-Result -Category "Workspace ONE Hub Status" -Test "AirWatch Agent Status Retrieval" -Result "Failure" -Details "Unable to retrieve AirWatch Agent Status: $($_.Exception.Message)"
         $IntelligentHubError = $True
     }
 
@@ -309,7 +304,8 @@ try {
 
     Write-Output "File hash validation passed. Executing the script..."
 
-} catch {
+}
+catch {
     Write-Error "An error occurred during hash validation or script execution: $_"
     exit 1
 }
@@ -330,12 +326,12 @@ function Get-UserLoggedIn {
                 ($_ -split '\s{2,}')[0]
             }
 
-            Write-Output "Logged-in users:"
-            $loggedInUsers | ForEach-Object { Write-Output $_ }
+            Write-Host "Logged-in users:"
+            $loggedInUsers | ForEach-Object { Write-host $_ }
             $usersession = $true
         }
         else {
-            Write-Output "No users are currently logged in."
+            Write-Host "No users are currently logged in."
             $usersession = $false
         }
     }
@@ -345,8 +341,7 @@ function Get-UserLoggedIn {
     return $usersession
 }
 
-
-if(Get-UserLoggedIn -eq $false) {
+if ((Get-UserLoggedIn) -eq $false) {
 
     #Get the MDM ernollment error status
     $MDMEnrollmentErrorStatus = Get-MDMEnrollmentDetails
