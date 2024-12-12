@@ -36,110 +36,310 @@ NOTES:
 ===============================================================================
 #>
 
+param(
+    # Path to the log file where script output will be saved
+    [Parameter(HelpMessage = "Path to the log file where script output will be saved")]
+    [string]$logFilePath = "C:\Windows\UEMRecovery\Logs\recovery.txt"
+)
+
+# Start PowerShell Transcript to Capture Console Output
+if ($logFilePath) {
+    Stop-Transcript -ErrorAction SilentlyContinue
+    if (Test-Path $logFilePath) {
+        Remove-Item -Path $logFilePath -Force
+    }
+    
+    Start-Transcript -Path $logFilePath -NoClobber -ErrorAction SilentlyContinue
+}
+
+# Centralized Logging Function
+function Write-Log {
+    param (
+        [string]$message,
+        [string]$severity = "INFO"
+    )
+
+    # Define severity levels for filtering based on verbosity level
+    $logLevels = @("INFO", "WARNING", "ERROR")
+    if ($logLevels.IndexOf($severity) -ge $logLevels.IndexOf($logLevel)) {
+
+        # Format message with a timestamp
+        $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+        $formattedMessage = "$timestamp [$severity] - $message"
+
+        # Output to console for real-time viewing (also captured by transcript if active)
+        Write-ConsoleLog -message $formattedMessage -severity $severity
+    }
+}
+
+# Function to Write Console Output with Severity Colors
+function Write-ConsoleLog {
+    param (
+        [string]$message,
+        [string]$severity
+    )
+
+    switch ($severity) {
+        "INFO" { Write-Host $message -ForegroundColor Green }
+        "WARNING" { Write-Host $message -ForegroundColor Yellow }
+        "ERROR" { Write-Host $message -ForegroundColor Red }
+    }
+}
+
+
 
 $WSOStagingUser = "test"
 $WSOStagingPW = 'test'
 $WSOOGID = "WS1"
 $WSOServer = "ds1831.awmdm.com"
 
+Write-Log "Starting recovery execution" -Severity "INFO"
 
-    #Wait for explorer to be started
-    do{
-        $Process = Get-Process -Name explorer
-        if($Process)
-        {
-            Start-Sleep 20 
-            Start-ScheduledTask "Screenlock"
-        }
-    }while(!$Process)
 
-    
+#Wait for explorer to be started
+do {
+    Write-Log "Waiting for explorer to get started" -Severity "INFO"
+    $Process = Get-Process -Name explorer
+    Start-Sleep 20 
+    if ($Process) {            
+        Write-Log "Explorer started, starting Screenlock Scheduled Task" -Severity "INFO"
+        #lock device screen
+        Start-ScheduledTask "Screenlock"
+    }
+        
+}while (!$Process)
+
+# Download Workspace ONE Agent
+try {
+    Write-Log "Workspace ONE Agent download started" -Severity "INFO"
     $WebClient = New-Object System.Net.WebClient
-    $WebClient.DownloadFile("https://$($WSOServer)/agents/ProtectionAgent_autoseed/airwatchagent.msi", "C:\Windows\UEMRecovery\AirwatchAgent.msi")
+    $agentPath = "C:\Windows\UEMRecovery\AirwatchAgent.msi"
+    $WebClient.DownloadFile("https://$($WSOServer)/agents/ProtectionAgent_autoseed/airwatchagent.msi", $agentPath)
+    Write-Log "Workspace ONE Agent downloaded successfully to $agentPath." -Severity "INFO"
+}
+catch {
+    Write-Log "Failed to download Workspace ONE Agent: $_" -Severity "ERROR"
+    $global:scriptError = $true
+    exit 1
+}
 
-
-    #Get Enrollment ID
-    $AllItems = Get-ChildItem HKLM:\SOFTWARE\Microsoft\Enrollments -Recurse
+# Get Enrollment ID
+Write-Log "Attempting to retrieve Enrollment ID."
+try {
+    # Retrieve all items under the Enrollment registry key
+    $AllItems = Get-ChildItem HKLM:\SOFTWARE\Microsoft\Enrollments -Recurse -ErrorAction Stop
     $AirWatchMDMKey = $AllItems | Where-Object { $_.Name -like "*AirWatchMDM" }
-    $pattern = "Enrollments(.*?)\DMClient"
-    $EnrollmentKey = ([regex]::Match(($AirWatchMDMKey.PSPath), $pattern).Groups[1].Value).Replace("\", "")
+
+    # Ensure the AirWatchMDMKey exists
+    if (-not $AirWatchMDMKey) {
+        throw "No AirWatchMDM key found in the registry."
+    }
+
+    # Extract the Enrollment Key using regex
+    $pattern = "Enrollments(.*?)\\DMClient"
+    $EnrollmentKey = ([regex]::Match(($AirWatchMDMKey.PSPath), $pattern).Groups[1].Value).Replace("\\", "")
+
+    if (-not $EnrollmentKey) {
+        throw "Failed to extract Enrollment Key using the specified regex pattern."
+    }
+
+    Write-Log "Enrollment key retrieved successfully: $EnrollmentKey."
+}
+catch {
+    Write-Log "Failed to retrieve Enrollment ID: $_" -Severity "ERROR"
+    $global:scriptError = $true
+    exit 1
+}
 
     
-    #Uninstall SFD to avoid application uninstallation
-    $Registry = (Get-ChildItem HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall | Where-Object {$_.GetValue('DisplayName') -like "*SfdAgent*"})
-    $SFDUninstall = "/x $($registry.PSChildName) /q"
-    Start-Process MsiExec.exe -ArgumentList $SFDUninstall -Wait
+# Uninstall SFD to avoid application uninstallation
+Write-Log "Attempting to uninstall SFD Agent."
+try {
+    # Retrieve the SFD Agent registry entry
+    $Registry = Get-ChildItem HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall -ErrorAction Stop | Where-Object { $_.GetValue('DisplayName') -like "*SfdAgent*" }
 
-    #Remove SFD and OMA-DM Registry keys to avoid application uninstallation
-    Remove-Item HKLM:\SOFTWARE\Microsoft\EnterpriseDesktopAppManagement -Recurse -Force
-    Remove-Item HKLM:\SOFTWARE\AirWatchMDM -Recurse -Force
+    # Ensure the registry entry exists
+    if (-not $Registry) {
+        throw "SFD Agent registry entry not found."
+    }
 
-    #Remove Intelligent Hub
-    $HubData = Get-WmiObject Win32_Product | Where-Object {$_.Name -like "*Intelligent HUB Installer*"}
-    $HubUninstall = "/x $($HubData.IdentifyingNumber) /q"
-    Start-Process MsiExec.exe -ArgumentList $HubUninstall -Wait
+    # Construct the uninstall command
+    $SFDUninstall = "/x $($Registry.PSChildName) /q"
 
-    #Sleep for 60 seconds to make sure Hub is uninstalled
-    Start-Sleep -Seconds 60
-
-    #uninstall WS1 App
-    Get-AppxPackage *AirWatchLLC* | Remove-AppxPackage 
-
-    #Remove Enrollment registry keys
-    Remove-Item -Path "HKLM:\SOFTWARE\AirWatch" -Recurse -Force
-    Remove-Item -Path "HKLM:\SOFTWARE\Microsoft\Enrollments" -Recurse -Force
-    Remove-Item -Path "HKLM:\SOFTWARE\Microsoft\EnterpriseDesktopAppManagement\S-0-0-00-0000000000-0000000000-000000000-000\MSI" -Recurse -Force
-    Remove-Item -Path "HKLM:\SOFTWARE\Microsoft\Provisioning\OMADM\Accounts" -Recurse -Force
-    Remove-Item -Path "HKLM:\SOFTWARE\Microsoft\Provisioning\OMADM\logger" -Recurse -Force
-    Remove-Item -Path "HKLM:\SOFTWARE\Microsoft\Provisioning\OMADM\MDMDeviceID" -Recurse -Force    
-    Remove-Item -Path "HKLM:\SOFTWARE\Microsoft\EnterpriseResourceManager\Tracked\$($EnrollmentKey)" -Recurse -Force
-    Remove-Item -Path "HKLM:\SOFTWARE\Microsoft\PolicyManager\AdmxDefault\$($EnrollmentKey)" -Recurse -Force
-    Remove-Item -Path "HKLM:\SOFTWARE\Microsoft\PolicyManager\AdmxInstalled\$($EnrollmentKey)" -Recurse -Force
-    Remove-Item -Path "HKLM:\SOFTWARE\Microsoft\PolicyManager\current\_ContainerAdmxDefault\*" -Recurse -Force
-    Remove-Item -Path "HKLM:\SOFTWARE\Microsoft\PolicyManager\device\ApplicationManagement\*" -Recurse -Force
-    Remove-Item -Path "HKLM:\SOFTWARE\Microsoft\PolicyManager\Providers\$($EnrollmentKey)" -Recurse -Force
-    Remove-Item -Path "HKLM:\SOFTWARE\Microsoft\Provisioning\OMADM\Session\$($EnrollmentKey)" -Recurse -Force
-    Remove-Item -Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsAnytimeUpgrade\Attempts\*" -Recurse -Force
+    # Execute the uninstall process
+    Start-Process MsiExec.exe -ArgumentList $SFDUninstall -Wait -ErrorAction Stop
+    Write-Log "SFD Agent uninstalled successfully."
+}
+catch {
+    Write-Log "Failed to uninstall SFD Agent: $_" -Severity "ERROR"
+    $global:scriptError = $true
+}
 
 
-    #Delete folders
-    $path = "$env:ProgramData\AirWatch"
-    Remove-Item $path -Recurse -Force
+# Remove SFD and OMA-DM Registry keys
+Write-Log "Attempting to remove SFD and OMA-DM registry keys."
+try {
+    # Remove Registry Keys
+    $registryKeys = @(
+        "HKLM:\\SOFTWARE\\Microsoft\\EnterpriseDesktopAppManagement",
+        "HKLM:\\SOFTWARE\\AirWatchMDM"
+    )
 
-    #$path = "$env:ProgramData\AirWatchMDM"
-    #Remove-Item $path -Recurse -Force
+    foreach ($key in $registryKeys) {
+        try {
+            if (Test-Path $key) {
+                Remove-Item $key -Recurse -Force -ErrorAction Stop
+                Write-Log "Successfully removed registry key: $key."
+            }
+            else {
+                Write-Log "Registry key not found: $key." -Severity "WARNING"
+            }
+        }
+        catch {
+            Write-Log "Failed to remove registry key: $key. Error: $_" -Severity "ERROR"
+        }
+    }
+}
+catch {
+    Write-Log "Error occurred while attempting to remove SFD and OMA-DM registry keys: $_" -Severity "ERROR"
+    $global:scriptError = $true
+}
 
-    $path = "$env:ProgramData\VMware\SfdAgent"
-    Remove-Item $path -Recurse -Force
+# Uninstall Intelligent Hub
+Write-Log "Attempting to uninstall Intelligent Hub."
+try {
+    # Retrieve Intelligent Hub installation data
+    $HubData = Get-WmiObject Win32_Product -ErrorAction Stop | Where-Object { $_.Name -like "*Intelligent HUB Installer*" }
+
+    # Validate if Intelligent Hub is found
+    if ($HubData) {
+        # Construct the uninstall command
+        $HubUninstall = "/x $($HubData.IdentifyingNumber) /q"
+
+        # Execute the uninstall process
+        Start-Process MsiExec.exe -ArgumentList $HubUninstall -Wait -ErrorAction Stop
+        Write-Log "Intelligent Hub uninstalled successfully."
+    }
+    else {
+        Write-Log "Intelligent Hub is not installed or could not be found." -Severity "WARNING"
+    }
+}
+catch {
+    Write-Log "Failed to uninstall Intelligent Hub: $_" -Severity "ERROR"
+    $global:scriptError = $true
+}
 
 
-    #Clean Scheduled Tasks - SFD
-    Get-ScheduledTask -TaskPath "\Microsoft\Windows\EnterpriseMgmt\$($EnrollmentKey)\*" | Unregister-ScheduledTask  -Confirm:$false
+#Sleep for 60 seconds to make sure Hub is uninstalled
+Start-Sleep -Seconds 60
 
-    $scheduleObject = New-Object -ComObject Schedule.Service
-    $scheduleObject.connect()
-    $rootFolder = $scheduleObject.GetFolder("\Microsoft\Windows\EnterpriseMgmt")
-    $rootFolder.DeleteFolder("$($EnrollmentKey)", $null)
+# Uninstall WS1 App
+Write-Log "Attempting to uninstall WS1 app."
+try {
+    # Retrieve the WS1 app package
+    $WS1App = Get-AppxPackage *AirWatchLLC* -ErrorAction SilentlyContinue
 
-    #Clean Scheduled Tasks - SFD
-    Get-ScheduledTask -TaskPath "\vmware\SfdAgent\*" | Unregister-ScheduledTask  -Confirm:$false
+    # Validate if the app package exists
+    if ($WS1App) {
+        # Attempt to remove the app package
+        $WS1App | Remove-AppxPackage -ErrorAction SilentlyContinue
+        Write-Log "WS1 app uninstalled successfully."
+    }
+    else {
+        Write-Log "WS1 app is not installed or could not be found." -Severity "WARNING"
+    }
+}
+catch {
+    Write-Log "Failed to uninstall WS1 app: $_" -Severity "ERROR"
+    $global:scriptError = $true
+}
 
-    $scheduleObject = New-Object -ComObject Schedule.Service
-    $scheduleObject.connect()
-    $rootFolder = $scheduleObject.GetFolder("\vmware")
-    $rootFolder.DeleteFolder("SfdAgent", $null)
+
+# Remove Enrollment Registry Keys
+Write-Log "Attempting to remove Enrollment registry keys."
+$registryKeys = @(
+    "HKLM:\SOFTWARE\AirWatch",
+    "HKLM:\SOFTWARE\Microsoft\Enrollments",
+    "HKLM:\SOFTWARE\Microsoft\EnterpriseDesktopAppManagement\S-0-0-00-0000000000-0000000000-000000000-000\MSI",
+    "HKLM:\SOFTWARE\Microsoft\Provisioning\OMADM\Accounts",
+    "HKLM:\SOFTWARE\Microsoft\Provisioning\OMADM\logger",
+    "HKLM:\SOFTWARE\Microsoft\Provisioning\OMADM\MDMDeviceID",
+    "HKLM:\SOFTWARE\Microsoft\EnterpriseResourceManager\Tracked\$($EnrollmentKey)",
+    "HKLM:\SOFTWARE\Microsoft\PolicyManager\AdmxDefault\$($EnrollmentKey)",
+    "HKLM:\SOFTWARE\Microsoft\PolicyManager\AdmxInstalled\$($EnrollmentKey)",
+    "HKLM:\SOFTWARE\Microsoft\PolicyManager\current\_ContainerAdmxDefault\*",
+    "HKLM:\SOFTWARE\Microsoft\PolicyManager\device\ApplicationManagement\*",
+    "HKLM:\SOFTWARE\Microsoft\PolicyManager\Providers\$($EnrollmentKey)",
+    "HKLM:\SOFTWARE\Microsoft\Provisioning\OMADM\Session\$($EnrollmentKey)",
+    "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsAnytimeUpgrade\Attempts\*"
+)
+
+foreach ($key in $registryKeys) {
+    try {
+        if (Test-Path $key) {
+            Remove-Item -Path $key -Recurse -Force -ErrorAction SilentlyContinue
+            Write-Log "Successfully removed registry key: $key."
+        }
+        else {
+            Write-Log "Registry key not found: $key." -Severity "WARNING"
+        }
+    }
+    catch {
+        Write-Log "Failed to remove registry key: $key. Error: $_" -Severity "ERROR"
+        $global:scriptError = $true
+    }
+}
+
+Write-Log "Delete files and information that may have been left behind"
+
+
+#Delete folders
+$path = "$env:ProgramData\AirWatch"
+Remove-Item $path -Recurse -Force
+
+$path = "$env:ProgramData\VMware\SfdAgent"
+Remove-Item $path -Recurse -Force
+
+
+#Clean Scheduled Tasks - SFD
+Get-ScheduledTask -TaskPath "\Microsoft\Windows\EnterpriseMgmt\$($EnrollmentKey)\*" | Unregister-ScheduledTask  -Confirm:$false
+
+$scheduleObject = New-Object -ComObject Schedule.Service
+$scheduleObject.connect()
+$rootFolder = $scheduleObject.GetFolder("\Microsoft\Windows\EnterpriseMgmt")
+$rootFolder.DeleteFolder("$($EnrollmentKey)", $null)
+
+#Clean Scheduled Tasks - SFD
+Get-ScheduledTask -TaskPath "\vmware\SfdAgent\*" | Unregister-ScheduledTask  -Confirm:$false
+
+$scheduleObject = New-Object -ComObject Schedule.Service
+$scheduleObject.connect()
+$rootFolder = $scheduleObject.GetFolder("\vmware")
+$rootFolder.DeleteFolder("SfdAgent", $null)
     
-    #Delete user certificates
-    $UserCerts = Get-ChildItem cert:"CurrentUser" -Recurse
-    $UserCerts | Where-Object { $_.Issuer -like "*AirWatch*" -or $_.Issuer -like "*AwDeviceRoot*" } | Remove-Item -Force
+#Delete user certificates
+$UserCerts = Get-ChildItem cert:"CurrentUser" -Recurse
+$UserCerts | Where-Object { $_.Issuer -like "*AirWatch*" -or $_.Issuer -like "*AwDeviceRoot*" } | Remove-Item -Force
 
-    #Delete device certificates
-    $DeviceCerts = Get-ChildItem cert:"LocalMachine" -Recurse
-    $DeviceCerts | Where-Object { $_.Issuer -like "*AirWatch*" -or $_.Issuer -like "*AwDeviceRoot*" } | Remove-Item -Force
+#Delete device certificates
+$DeviceCerts = Get-ChildItem cert:"LocalMachine" -Recurse
+$DeviceCerts | Where-Object { $_.Issuer -like "*AirWatch*" -or $_.Issuer -like "*AwDeviceRoot*" } | Remove-Item -Force
 
-    #Enroll the device to UEM
-    $List =  "/q ENROLL=Y SERVER=https://$($WSOServer) LGName=$($WSOOGID) USERNAME=$($WSOStagingUser) PASSWORD=$($WSOStagingPW) ASSIGNTOLOGGEDINUSER=Y"
-    Start-Process "C:\Windows\UEMRecovery\AirwatchAgent.msi" -ArgumentList $List -Wait
+# Enroll the device to UEM
+Write-Log "Starting enrollment process for the device."
+try {
+    # Construct the argument list for enrollment
+    $List = "/q ENROLL=Y SERVER=https://$($WSOServer) LGName=$($WSOOGID) USERNAME=$($WSOStagingUser) PASSWORD=$($WSOStagingPW) ASSIGNTOLOGGEDINUSER=Y"
+    
+    # Execute the enrollment process
+    Start-Process "C:\Windows\UEMRecovery\AirwatchAgent.msi" -ArgumentList $List -Wait -ErrorAction Stop
+    Write-Log "Device enrollment initiated successfully."
+}
+catch {
+    Write-Log "Failed to install Intelligent Hub: $_" -Severity "ERROR"
+    $global:scriptError = $true
+    exit 1
+}
 
 
 
@@ -147,33 +347,48 @@ $WSOServer = "ds1831.awmdm.com"
 $timeout = new-timespan -Minutes 10
 $sw = [diagnostics.stopwatch]::StartNew()
 $enrollcheck = $false
-
+$i = 0
 do {
+    $i++
     Start-Sleep -Seconds 10
+    Write-Log "Start enrollment check No. $($i)"
+
     #Check every 10 seconds if the device is enrolled
-    $enrolltemp = Get-Item -Path "HKLM:\SOFTWARE\AIRWATCH\EnrollmentStatus"
-    If ($enrolltemp.GetValue("Status") -eq 'Completed') {
-        $enrollcheck = $true
+    $enrolltemp = Get-Item -Path "HKLM:\SOFTWARE\AIRWATCH\EnrollmentStatus" -ErrorAction SilentlyContinue
+    if ($enrolltemp) {
+        If ($enrolltemp.GetValue("Status") -eq 'Completed') {
+            $enrollcheck = $true
         
-        #Remove autologon settings
-        $RegistryPath = 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon'
-        Remove-ItemProperty $RegistryPath -name "AutoAdminLogon"
-        Remove-ItemProperty $RegistryPath -name "DefaultUsername" 
-        Remove-ItemProperty $RegistryPath -name "DefaultPassword" 
+            Write-Log "Device enrolled successfully."
 
-        #Remove the "Installer" account information from the login screen
-        New-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Authentication\LogonUI" -name "LastLoggedOnUser" -PropertyType String -Value "" -Force
-        New-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Authentication\LogonUI" -name "LastLoggedOnUserSID" -PropertyType String -Value "" -Force
-        New-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Authentication\LogonUI" -name "LastLoggedOnDisplayName" -PropertyType String -Value "" -Force
-        New-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Authentication\LogonUI" -name "LastLoggedOnSamUser" -PropertyType String -Value "" -Force
-        New-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Authentication\LogonUI" -name "SelectedUserSID" -PropertyType String -Value "" -Force
+            #Remove autologon settings
+            $RegistryPath = 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon'
+            Remove-ItemProperty $RegistryPath -name "AutoAdminLogon"
+            Remove-ItemProperty $RegistryPath -name "DefaultUsername" 
+            Remove-ItemProperty $RegistryPath -name "DefaultPassword" 
 
-        #Restart the device
-        $shutdown = "/r /t 20 /f"
-        Start-Process shutdown.exe -ArgumentList $shutdown
+            #Remove the "Installer" account information from the login screen
+            New-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Authentication\LogonUI" -name "LastLoggedOnUser" -PropertyType String -Value "" -Force
+            New-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Authentication\LogonUI" -name "LastLoggedOnUserSID" -PropertyType String -Value "" -Force
+            New-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Authentication\LogonUI" -name "LastLoggedOnDisplayName" -PropertyType String -Value "" -Force
+            New-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Authentication\LogonUI" -name "LastLoggedOnSamUser" -PropertyType String -Value "" -Force
+            New-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Authentication\LogonUI" -name "SelectedUserSID" -PropertyType String -Value "" -Force
 
-        #Disable the Scheduled task
-        Unregister-ScheduledTask -TaskName "WorkspaceONE Recovery" -Confirm:$false
+            #Restart the device
+            $shutdown = "/r /t 20 /f"
+            Start-Process shutdown.exe -ArgumentList $shutdown
 
+            # Disable the Scheduled Task
+            Write-Log "Attempting to delete the scheduled task 'WorkspaceONE Recovery'."
+            try {
+                Unregister-ScheduledTask -TaskName "WorkspaceONE Recovery" -Confirm:$false -ErrorAction Stop
+                Write-Log "Scheduled task 'WorkspaceONE Recovery' successfully deleted."
+            }
+            catch {
+                Write-Log "Failed to delete the scheduled task 'WorkspaceONE Recovery': $_" -Severity "ERROR"
+                $global:scriptError = $true
+            }
+
+        }
     }
 }while ($enrollcheck -eq $false -and $sw.elapsed -lt $timeout)
