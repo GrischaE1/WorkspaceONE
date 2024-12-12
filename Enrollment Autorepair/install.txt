@@ -1,0 +1,15 @@
+Upload WS1_Autorepair.zip to Workspace ONE 
+
+Use the following installation command: 
+powershell -executionpolicy bypass -file install.ps1 -ExpectedHash "<HashValue>"
+
+As installation detection use a custom script and upload 
+Detection.ps1 
+as command use (Update the File Hash): 
+powershell -executionpolicy bypass -file detection.ps1 -FileHash 125D04336036FD036C41A8AA53C5B65DAACD6E5D68CBC37E9C95CFAB57EA7F32 
+
+uninstall
+powershell -executionpolicy bypass -file uninstall.ps1 -InstallDir "C:\Windows\UEMRecovery"
+
+
+   
