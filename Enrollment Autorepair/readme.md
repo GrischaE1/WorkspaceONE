@@ -47,7 +47,6 @@ Run `Install.ps1` to set up the solution:
 ```powershell
 .\Install.ps1 -ExpectedHash "<YourScriptHash>" -DayOfWeek "Monday" -TimeOfDay "14:00:00" -DestinationPath "C:\Path\To\Destination"
 ```
-# Workspace ONE Recovery Solution
 
 ## Scheduled Validation and Recovery
 The scheduled task created by `Install.ps1` will automatically execute `ws1_autorepair.ps1` to validate and repair the Workspace ONE environment. It checks for:
