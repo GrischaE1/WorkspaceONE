@@ -828,4 +828,4 @@ if ($global:scriptError) {
 
 $severity = if ($global:exitCode -eq 0) { "INFO" } else { "ERROR" }
 Write-Log "Script completed with exit code $global:exitCode." -Severity $severity
-#Exit $global:exitCode
+Exit $global:exitCode
