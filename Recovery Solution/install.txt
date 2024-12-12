@@ -1,7 +1,7 @@
 Upload WS1_Autorepair.zip to Workspace ONE 
 
 Use the following installation command: 
-powershell -executionpolicy bypass -file install.ps1 -ExpectedHash "<HashValue>"
+powershell -executionpolicy bypass -file install.ps1 -ExpectedHash "125D04336036FD036C41A8AA53C5B65DAACD6E5D68CBC37E9C95CFAB57EA7F32"
 
 As installation detection use a custom script and upload 
 Detection.ps1 
