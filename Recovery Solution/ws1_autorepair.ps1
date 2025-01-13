@@ -103,73 +103,136 @@ function Write-ConsoleLog {
 }
 
 
-# Function to Get the Active MDM Enrollment Details
+#Check the Domain Join status
+function Get-DomainStatus {
+    [CmdletBinding()]
+    param()
+
+    try {
+        # Gather dsregcmd output and trim each line
+        $dsregLines = dsregcmd /status | ForEach-Object { $_.Trim() }
+    }
+    catch {
+        Write-Error "Failed to run 'dsregcmd /status': $_"
+        return
+    }
+
+    # Convert only lines containing " : " into Name/Value pairs
+    $dsregPairs = $dsregLines |
+    Where-Object { $_ -match ' : ' } |
+    ConvertFrom-String -PropertyNames 'Name', 'Value' -Delimiter ' : '
+
+    # Create a hashtable for quick lookups (e.g., $hash["AzureAdJoined"])
+    $hash = @{}
+    foreach ($item in $dsregPairs) {
+        $hash[$item.Name] = $item.Value
+    }
+
+    # Booleans for each relevant status
+    $AADJoined = ($hash["AzureAdJoined"] -eq 'YES')
+    $ADJoined = ($hash["DomainJoined"] -eq 'YES')
+    $HybridJoined = $AADJoined -and $ADJoined
+
+    # Return status as a structured object
+    [PSCustomObject]@{
+        AADJoined    = $AADJoined
+        ADJoined     = $ADJoined
+        HybridJoined = $HybridJoined
+    }
+}
+
 function Get-MDMEnrollmentDetails {
+    [CmdletBinding()]
+    param(
+        [string]$ProviderID
+    )
+
     Write-Log "Starting retrieval of Current MDM User Output..." -Severity "INFO"
 
     $MDMError = $false
-
-    $activeMDMID = (Get-ChildItem HKLM:\SOFTWARE\MICROSOFT\ENROLLMENTS | Where-Object {
-            $_.GetValue('ProviderId') -eq $providerID
-        }).Name | Split-Path -Leaf
-
+    $activeMDMID = $null
+    
+    # Locate the active MDM enrollment key
+    $activeMDMID = (Get-ChildItem HKLM:\SOFTWARE\MICROSOFT\ENROLLMENTS -ErrorAction SilentlyContinue | Where-Object { $_.GetValue('ProviderId') -eq $ProviderID }).Name | Split-Path -Leaf
+    
     if ($activeMDMID) {
 
-        try {
-            $activeMDMUserSID = Get-ItemPropertyValue "HKLM:\SOFTWARE\MICROSOFT\ENROLLMENTS\$activeMDMID" -Name SID -ErrorAction Stop
-            New-PSDrive HKU Registry HKEY_USERS -ErrorAction SilentlyContinue | Out-Null
+        # --- 1) Determine domain-join state ---
+        $domainStatus = Get-DomainStatus
 
-            $registryTest = Test-Path "HKU:\$activeMDMUserSID"
-            $MDMUserName = if ($registryTest) {
-                Get-ItemPropertyValue "HKU:\$activeMDMUserSID\Volatile Environment" -Name USERNAME
+        # For demonstration/logging:
+        Write-Log "Domain Join States: AADJoined=$($domainStatus.AADJoined) | ADJoined=$($domainStatus.ADJoined) | HybridJoined=$($domainStatus.HybridJoined)" -Severity "INFO"
+
+        # --- 2) If AAD joined *only*, check enrollment UPN. Otherwise, fall back to SID checks ---
+        if ($domainStatus.AADJoined -and -not $domainStatus.ADJoined) {
+            # =============== AAD-Joined Logic ===============
+            Write-Log "Device is AAD Joined (not AD Joined). Checking Enrollment UPN..." -Severity "INFO"
+            try {
+                # Example: read the UPN from somewhere in the registry or from the dsregcmd data
+                # (Replace 'SomeRegistryPath' / 'SomeValueName' with your actual location)
+                $upn = Get-ItemPropertyValue -Path "HKLM:\SOFTWARE\Microsoft\ENROLLMENTS\$activeMDMID" -Name 'UPN' -ErrorAction Stop
+            
+                if (-not $upn) {
+                    Write-Log "Enrollment UPN was not found or was empty." -Severity "ERROR"
+                    $MDMError = $true
+                }
+                else {
+                    Write-Log "Enrollment UPN is set to: $upn" -Severity "INFO"
+                }
             }
-
-            $userProfileTest = if ($registryTest) {
-                Test-Path (Get-ItemPropertyValue "HKU:\$activeMDMUserSID\Volatile Environment" -Name USERPROFILE)
-            }
-
-            # Log results
-            Write-Log "Current active MDM ID:            $activeMDMID" -Severity "INFO"
-
-            Write-Log "Current active MDM UserSID:       $activeMDMUserSID" -Severity "INFO"
-
-            Write-Log "User SID in Registry:             $registryTest" -Severity "INFO"
-            if ($registryTest -eq $true) {
-            }
-            else {
+            catch {
+                Write-Log "Failed to retrieve Enrollment UPN for AAD-joined device: $($_.Exception.Message)" -Severity "ERROR"
                 $MDMError = $true
             }
+        }
+        else {
+            # =============== AD-Joined or Hybrid-Joined Logic ===============
+            Write-Log "Device is AD Joined or Hybrid Joined. Proceeding with SID-based MDM checks..." -Severity "INFO"
 
-            if ($MDMUserName) {
+
+       
+            try {
+                $activeMDMUserSID = Get-ItemPropertyValue "HKLM:\SOFTWARE\MICROSOFT\ENROLLMENTS\$activeMDMID" -Name SID -ErrorAction Stop
+                New-PSDrive -Name HKU -PSProvider Registry -Root HKEY_USERS -ErrorAction SilentlyContinue | Out-Null
+
+                $registryTest = Test-Path "HKU:\$activeMDMUserSID"
+                $MDMUserName = if ($registryTest) {
+                    Get-ItemPropertyValue "HKU:\$activeMDMUserSID\Volatile Environment" -Name USERNAME -ErrorAction SilentlyContinue
+                }
+
+                $userProfileTest = if ($registryTest) {
+                    Test-Path (Get-ItemPropertyValue "HKU:\$activeMDMUserSID\Volatile Environment" -Name USERPROFILE -ErrorAction SilentlyContinue)
+                }
+
+                # Log results
+                Write-Log "Current active MDM ID:            $activeMDMID" -Severity "INFO"
+                Write-Log "Current active MDM UserSID:       $activeMDMUserSID" -Severity "INFO"
+                Write-Log "User SID in Registry:             $registryTest" -Severity "INFO"
                 Write-Log "Current active MDM Username:      $MDMUserName" -Severity "INFO"
+                Write-Log "User Profile Path still active:   $userProfileTest" -Severity "INFO"
+
+                if (-not $registryTest -or -not $MDMUserName -or -not $userProfileTest) {
+                    $MDMError = $true
+                }
             }
-            else {
+            catch {
+                Write-Log "Error accessing registry key for Active MDM User SID: $($_.Exception.Message)" -Severity "ERROR"
+                $global:scriptError = $true
                 $MDMError = $true
             }
-
-            Write-Log "User Profile Path still active:   $userProfileTest" -Severity "INFO"
-            if ($userProfileTest -eq $true) {
-            }
-            else {
-                $MDMError = $true
-            }
-
+        
         }
-        catch {
-            Write-Log "Error accessing registry key for Active MDM User SID: $($_.Exception.Message)" -Severity "ERROR"
-            $global:scriptError = $true
-            $MDMError = $true
-        }
-    }
+    }    
     else {
         Write-Log "No active MDM enrollment found." -Severity "WARNING"
         $MDMError = $true
         $activeMDMID = 0
     }
-
+    # --- 3) Return what you need to consume outside the function ---
+    # Return both the MDM ID and an error state. You can also include domain status, if desired.
+    Write-Log "Get-MDMEnrollmentDetails result is: $($MDMError)" -Severity "INFO"
     return $activeMDMID, $MDMError
 }
-
 
 # Function to Validate Scheduled Tasks
 function Test-ScheduledTasks {
@@ -180,8 +243,10 @@ function Test-ScheduledTasks {
     if (-not $activeMDMID) {
         Write-Log "Active MDM ID is not available. Skipping Scheduled Task Validation." -Severity "WARNING"
         $ScheduledTaskError = $true
+        Write-Log "Test-ScheduledTasks result is: $($ScheduledTaskError)" -Severity "INFO"
         return $ScheduledTaskError
     }
+    else { Write-Log "Active MDM ID is $($activeMDMID)" -Severity "INFO" }
 
     Write-Log "Validating scheduled tasks for MDM..." -Severity "INFO"
 
@@ -202,6 +267,7 @@ function Test-ScheduledTasks {
             
             # Determine if the task ran successfully
             if ($taskInfo.LastTaskResult -eq 0) {
+                $ScheduledTaskError = $false
             }
             else {
                 $ScheduledTaskError = $true
@@ -223,6 +289,8 @@ function Test-ScheduledTasks {
             $ScheduledTaskError = $true
         }
     }
+
+    Write-Log "Test-ScheduledTasks result is: $($ScheduledTaskError)" -Severity "INFO"
 
     return $ScheduledTaskError
 }
@@ -284,31 +352,11 @@ function Get-WorkspaceONEHubStatus {
     # Debug log to verify that results are being added
     Write-Log "Current Output Results: $($global:outputResults.Count) entries" -Severity "INFO"
 
+    Write-Log "Get-WorkspaceONEHubStatus result is: $($IntelligentHubError)" -Severity "INFO"
     return $IntelligentHubError
 }
 
 
-
-# Path to the current script
-$scriptPath = $MyInvocation.MyCommand.Path
-
-try {
-    # Calculate the hash of the current script
-    $actualHash = Get-FileHash -Path $scriptPath -Algorithm SHA256
-
-    # Compare the actual hash with the expected hash
-    if ($actualHash.hash -ne $ExpectedHash) {
-        Write-Error "File hash mismatch! The script may have been modified."
-        exit 1
-    }
-
-    Write-Output "File hash validation passed. Executing the script..."
-
-}
-catch {
-    Write-Error "An error occurred during hash validation or script execution: $_"
-    exit 1
-}
 
 
 #Function to check if a user is currently logged in to the device
@@ -341,10 +389,38 @@ function Get-UserLoggedIn {
     return $usersession
 }
 
+####################################################################
+#Script Validation
+
+# Path to the current script
+$scriptPath = $MyInvocation.MyCommand.Path
+
+try {
+    # Calculate the hash of the current script
+    $actualHash = Get-FileHash -Path $scriptPath -Algorithm SHA256
+
+    # Compare the actual hash with the expected hash
+    if ($actualHash.hash -ne $ExpectedHash) {
+        Write-Error "File hash mismatch! The script may have been modified."
+        exit 1
+    }
+
+    Write-Output "File hash validation passed. Executing the script..."
+
+}
+catch {
+    Write-Error "An error occurred during hash validation or script execution: $_"
+    exit 1
+}
+
+
+####################################################################
+# Start Script if no user is logged in
+
 if ((Get-UserLoggedIn) -eq $false) {
 
     #Get the MDM ernollment error status
-    $MDMEnrollmentErrorStatus = Get-MDMEnrollmentDetails
+    $MDMEnrollmentErrorStatus = Get-MDMEnrollmentDetails -ProviderID $providerID
     $ScheduledTaskErrorStatus = Test-ScheduledTasks -activeMDMID $MDMEnrollmentErrorStatus[0]
     $IntelligentHubErrorStatus = Get-WorkspaceONEHubStatus
 
