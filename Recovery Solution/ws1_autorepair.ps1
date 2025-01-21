@@ -335,28 +335,26 @@ function Test-ScheduledTasks {
 function Get-WorkspaceONEHubStatus {
     Write-Log "Retrieving Workspace ONE Intelligent Hub Status..." -Severity "INFO"
 
-    $IntelligentHubError = $False
+    $IntelligentHubError = $false
     
-    # Define the services to check
+    # Define the services to check (remove VMware Hub Health Monitoring Service)
     $services = @(
-        @{ Name = "AirWatchService"; DisplayName = "AirWatch Service" },
-        @{ Name = "VMware Hub Health Monitoring Service"; DisplayName = "Health Monitoring Service" }
+        @{ Name = "AirWatchService"; DisplayName = "AirWatch Service" }
     )
 
     foreach ($service in $services) {
-        $status = (Get-Service -Name $service.Name -ErrorAction SilentlyContinue).Status
-        
-        if ($status -eq "Running") {
-            Write-Log "$($service.DisplayName): $status" -Severity "INFO"
+        $svc = Get-Service -Name $service.Name -ErrorAction SilentlyContinue
+        if ($svc -and $svc.Status -eq "Running") {
+            Write-Log "$($service.DisplayName): Running" -Severity "INFO"
         }
         else {
             Write-Log "$($service.DisplayName): Not Running" -Severity "WARNING"
-            $IntelligentHubError = $True
+            $IntelligentHubError = $true
         }
     }
 
-    # Define processes to check
-    $processes = @("VMwareHubHealthMonitoring", "AWACMClient", "AwWindowsIpc")
+    # Define processes to check (remove VMwareHubHealthMonitoring)
+    $processes = @("AWACMClient", "AwWindowsIpc")
     foreach ($process in $processes) {
         $running = Get-Process -Name $process -ErrorAction SilentlyContinue
         if ($running) {
@@ -364,8 +362,44 @@ function Get-WorkspaceONEHubStatus {
         }
         else {
             Write-Log "$process Process: Not Running" -Severity "WARNING"
-            $IntelligentHubError = $True
+            $IntelligentHubError = $true
         }
+    }
+
+    # NEW SECTION: Check if WorkspaceONEHubHealthMonitoringJob ran successfully in last 24 hours
+    $taskName = "WorkspaceONEHubHealthMonitoringJob"
+    $taskPath = "\"  # root folder of the Task Scheduler library
+
+    try {
+        $task = Get-ScheduledTaskinfo -TaskName $taskName -TaskPath $taskPath -ErrorAction Stop 
+        if ($null -ne $task) {
+            # Check Last Run Time and Last Task Result
+            $lastRunTime     = $task.LastRunTime
+            $lastTaskResult  = $task.LastTaskResult  # Typically 0 means success
+            $time24HoursAgo  = (Get-Date).AddHours(-24)
+
+            Write-Log "Task '$taskName' last ran at: $lastRunTime (Result: $lastTaskResult)" -Severity "INFO"
+
+            if ($lastRunTime -lt $time24HoursAgo) {
+                Write-Log "Task '$taskName' has not run in the last 24 hours." -Severity "WARNING"
+                $IntelligentHubError = $true
+            }
+            elseif ($lastTaskResult -ne 0) {
+                Write-Log "Task '$taskName' did not complete successfully (LastTaskResult=$lastTaskResult)." -Severity "WARNING"
+                $IntelligentHubError = $true
+            }
+            else {
+                Write-Log "Task '$taskName' ran successfully within the last 24 hours." -Severity "INFO"
+            }
+        }
+        else {
+            Write-Log "Scheduled Task '$taskName' not found in path '$taskPath'." -Severity "WARNING"
+            $IntelligentHubError = $true
+        }
+    }
+    catch {
+        Write-Log "Error retrieving scheduled task '$taskName': $($_.Exception.Message)" -Severity "ERROR"
+        $IntelligentHubError = $true
     }
 
     # Check the AirWatch Agent Status
@@ -377,15 +411,15 @@ function Get-WorkspaceONEHubStatus {
         }
         else {
             Write-Log "AirWatch Agent not started." -Severity "WARNING"
-            $IntelligentHubError = $True
+            $IntelligentHubError = $true
         }
     }
     catch {
-        Write-Log "Unable to retrieve AirWatch Agent Status." -Severity "ERROR"
-        $IntelligentHubError = $True
+        Write-Log "Unable to retrieve AirWatch Agent Status: $($_.Exception.Message)" -Severity "ERROR"
+        $IntelligentHubError = $true
     }
 
-    # Debug log to verify that results are being added
+    # Debug log to verify results are being added
     Write-Log "Current Output Results: $($global:outputResults.Count) entries" -Severity "INFO"
 
     Write-Log "Get-WorkspaceONEHubStatus result is: $($IntelligentHubError)" -Severity "INFO"
