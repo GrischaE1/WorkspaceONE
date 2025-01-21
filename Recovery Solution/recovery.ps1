@@ -7,7 +7,7 @@ the device into Workspace ONE.
 
 Author:      Grischa Ernst
 Date:        2024-12-12
-Version:     1.0
+Version:     1.1
 ===============================================================================
 
 DISCLAIMER:
