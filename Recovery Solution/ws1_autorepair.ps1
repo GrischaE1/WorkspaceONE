@@ -141,6 +141,28 @@ function Get-DomainStatus {
     }
 }
 
+function Get-UserNameFromSid {
+    param(
+        [Parameter(Mandatory)]
+        [string]$Sid
+    )
+    try {
+        $sidObj    = New-Object System.Security.Principal.SecurityIdentifier($Sid)
+        $ntAccount = $sidObj.Translate([System.Security.Principal.NTAccount])
+
+        # $ntAccount.Value is usually "DOMAIN\Username" or "COMPUTERNAME\Username"
+        # We'll split on the first backslash and return only the username part.
+        $parts = $ntAccount.Value -split '\\', 2
+        return $parts[1]  # Just the username
+    }
+    catch {
+        # If translation fails for any reason, return $null (or handle differently).
+        Write-Warning "Failed to translate SID [$Sid] to a username. Error: $($_.Exception.Message)"
+        return $null
+    }
+}
+
+
 function Get-MDMEnrollmentDetails {
     [CmdletBinding()]
     param(
@@ -192,34 +214,48 @@ function Get-MDMEnrollmentDetails {
 
        
             try {
-                $activeMDMUserSID = Get-ItemPropertyValue "HKLM:\SOFTWARE\MICROSOFT\ENROLLMENTS\$activeMDMID" -Name SID -ErrorAction Stop
+                # Grab the SID from the enrollment key
+                $activeMDMUserSID = Get-ItemPropertyValue -Path "HKLM:\SOFTWARE\MICROSOFT\ENROLLMENTS\$activeMDMID" -Name 'SID' -ErrorAction Stop
                 New-PSDrive -Name HKU -PSProvider Registry -Root HKEY_USERS -ErrorAction SilentlyContinue | Out-Null
-
+            
+                # Check if the user's SID is currently loaded under HKU
                 $registryTest = Test-Path "HKU:\$activeMDMUserSID"
-                $MDMUserName = if ($registryTest) {
-                    Get-ItemPropertyValue "HKU:\$activeMDMUserSID\Volatile Environment" -Name USERNAME -ErrorAction SilentlyContinue
+                if ($registryTest) {
+                    # Attempt to read from the Volatile Environment
+                    $MDMUserName = Get-ItemPropertyValue -Path "HKU:\$activeMDMUserSID\Volatile Environment" -Name 'USERNAME' -ErrorAction SilentlyContinue
+                    $userProfilePath = Get-ItemPropertyValue -Path "HKU:\$activeMDMUserSID\Volatile Environment" -Name 'USERPROFILE' -ErrorAction SilentlyContinue
+                    $userProfileTest = Test-Path $userProfilePath
+            
+                    Write-Log "Found HKU:\$activeMDMUserSID loaded. USERNAME=$MDMUserName, USERPROFILE=$userProfilePath" -Severity "INFO"
+            
+                    if (-not $MDMUserName -or -not $userProfileTest) {
+                        Write-Log "Either USERNAME or USERPROFILE is not set/valid. Possibly a local account or ephemeral session." -Severity "WARNING"
+                        # Attempt fallback .NET resolution
+                        $MDMUserName = Get-UserNameFromSid -Sid $activeMDMUserSID
+                    }
                 }
-
-                $userProfileTest = if ($registryTest) {
-                    Test-Path (Get-ItemPropertyValue "HKU:\$activeMDMUserSID\Volatile Environment" -Name USERPROFILE -ErrorAction SilentlyContinue)
+                else {
+                    # If HKU:\SID is not loaded, we definitely need an alternative approach.
+                    Write-Log "HKU:\$activeMDMUserSID is not mounted. Trying .NET lookup..." -Severity "INFO"
+                    $MDMUserName = Get-UserNameFromSid -Sid $activeMDMUserSID
                 }
-
-                # Log results
-                Write-Log "Current active MDM ID:            $activeMDMID" -Severity "INFO"
-                Write-Log "Current active MDM UserSID:       $activeMDMUserSID" -Severity "INFO"
-                Write-Log "User SID in Registry:             $registryTest" -Severity "INFO"
-                Write-Log "Current active MDM Username:      $MDMUserName" -Severity "INFO"
-                Write-Log "User Profile Path still active:   $userProfileTest" -Severity "INFO"
-
-                if (-not $registryTest -or -not $MDMUserName -or -not $userProfileTest) {
+            
+                # Now log the final discovered user name
+                if ($MDMUserName) {
+                    Write-Log "Resolved user name from SID: $MDMUserName" -Severity "INFO"
+                }
+                else {
+                    Write-Log "Could not resolve user name for SID: $activeMDMUserSID" -Severity "WARNING"
                     $MDMError = $true
                 }
+            
             }
             catch {
                 Write-Log "Error accessing registry key for Active MDM User SID: $($_.Exception.Message)" -Severity "ERROR"
                 $global:scriptError = $true
                 $MDMError = $true
             }
+            
         
         }
     }    
