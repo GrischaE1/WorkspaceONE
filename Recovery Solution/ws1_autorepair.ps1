@@ -1,15 +1,4 @@
 <#
-===============================================================================
-Script Name: ws1_autorepair.ps1
-Description: Validates the Workspace ONE environment by checking MDM enrollment, 
-scheduled tasks, and Workspace ONE services. Automatically triggers recovery 
-if issues are detected.
-
-Author:      Grischa Ernst
-Date:        2024-12-12
-Version:     1.0
-===============================================================================
-
 DISCLAIMER:
 This script is provided "as is," without warranty of any kind, express or implied, 
 including but not limited to the warranties of merchantability, fitness for a 
@@ -21,6 +10,17 @@ connection with the script or the use or other dealings in the script.
 This script is designed for educational and operational use. Use it at your 
 own risk and ensure you understand its implications before running in 
 production environments.
+===============================================================================
+
+===============================================================================
+Script Name: ws1_autorepair.ps1
+Description: Validates the Workspace ONE environment by checking MDM enrollment, 
+scheduled tasks, and Workspace ONE services. Automatically triggers recovery 
+if issues are detected.
+
+Author:      Grischa Ernst
+Date:        2024-12-12
+Version:     1.2
 ===============================================================================
 
 USAGE:
@@ -39,6 +39,13 @@ NOTES:
 - Automatically triggers `recovery.ps1` if validation fails.
 - Logs are created at the specified `logFilePath` for troubleshooting.
 ===============================================================================
+
+===============================================================================
+Changelog: 
+1.0 - published
+1.1 - Bugfixing + added AD and AAD support
+1.2 - updated reference for Workspace ONE Intelligent HUB 24.10 and newer
+    - Included auto remediation for Scheduled Tasks
 #>
 
 
@@ -252,7 +259,6 @@ function Get-MDMEnrollmentDetails {
             }
             catch {
                 Write-Log "Error accessing registry key for Active MDM User SID: $($_.Exception.Message)" -Severity "ERROR"
-                $global:scriptError = $true
                 $MDMError = $true
             }
             
@@ -282,54 +288,136 @@ function Test-ScheduledTasks {
         Write-Log "Test-ScheduledTasks result is: $($ScheduledTaskError)" -Severity "INFO"
         return $ScheduledTaskError
     }
-    else { Write-Log "Active MDM ID is $($activeMDMID)" -Severity "INFO" }
+    else {
+        Write-Log "Active MDM ID is $($activeMDMID)" -Severity "INFO"
+    }
 
     Write-Log "Validating scheduled tasks for MDM..." -Severity "INFO"
 
-    $taskPath = "\Microsoft\Windows\EnterpriseMgmt\$activeMDMID\"
-    $tasks = @(
-        @{ Name = "Schedule #3 created by enrollment client"; Description = "8-hour sync" },
-        @{ Name = "Schedule to run OMADMClient by client"; Description = "Main sync task" }
+    # All tasks are expected to run every 8 hours
+    $eightHours = 8
+    $taskPath   = "\Microsoft\Windows\EnterpriseMgmt\$activeMDMID\"
+    $tasks      = @(
+        @{
+            Name        = "Schedule #3 created by enrollment client"
+            Description = "8-hour sync"
+        },
+        @{
+            Name        = "Schedule to run OMADMClient by client"
+            Description = "8-hour sync"
+        }
     )
 
     foreach ($task in $tasks) {
         try {
             # Retrieve task information
             $taskInfo = Get-ScheduledTaskInfo -TaskPath $taskPath -TaskName $task.Name -ErrorAction Stop
-            
+
             # Log task details
             Write-Log "$($task.Description) - Last Runtime: $($taskInfo.LastRunTime)" -Severity "INFO"
             Write-Log "$($task.Description) - Last Result: $($taskInfo.LastTaskResult)" -Severity "INFO"
-            
-            # Determine if the task ran successfully
-            if ($taskInfo.LastTaskResult -eq 0) {
-                $ScheduledTaskError = $false
-            }
-            else {
-                $ScheduledTaskError = $true
-            }
 
-            # Check if the task has run in the last 8 hours (for the 8-hour sync task)
-            if ($task.Description -eq "8-hour sync") {
-                $timeDifference = (Get-Date) - [datetime]$taskInfo.LastRunTime
-                if ($timeDifference.TotalHours -le 8) {
+            # Check if the task's last run was successful
+            $isTaskResultOk = ($taskInfo.LastTaskResult -eq 0)
+
+            # Check if the task has run within the last 8 hours
+            $timeDifference = (Get-Date) - [datetime]$taskInfo.LastRunTime
+            $isTimeCompliance = ($timeDifference.TotalHours -le $eightHours)
+
+            # Combine compliance checks
+            $isCompliant = $isTaskResultOk -and $isTimeCompliance
+
+            if (-not $isCompliant) {
+                Write-Log "Task '$($task.Name)' is out of compliance. Attempting to start..." -Severity "WARNING"
+                Start-ScheduledTask -TaskName $task.Name -TaskPath $taskPath
+
+                # Optional brief wait before checking status again
+                Start-Sleep -Seconds 2
+
+                # Poll for completion
+                $maxRetries   = 10
+                $retry        = 0
+                $taskFinished = $false
+
+                while ($retry -lt $maxRetries) {
+                    Start-Sleep -Seconds 10
+                    $currentTaskInfo = Get-ScheduledTask -TaskName $task.Name -TaskPath $taskPath | Get-ScheduledTaskInfo
+                    if ($currentTaskInfo.State -eq 'Running') {
+                        Write-Log "Task '$($task.Name)' is still running..." -Severity "INFO"
+                    }
+                    else {
+                        Write-Log "Task '$($task.Name)' has finished running. Checking final result..." -Severity "INFO"
+                        if ($currentTaskInfo.LastTaskResult -eq 0) {
+                            Write-Log "Task '$($task.Name)' completed successfully after re-trigger." -Severity "INFO"
+                        }
+                        else {
+                            Write-Log "Task '$($task.Name)' completed with a non-zero result: $($currentTaskInfo.LastTaskResult)" -Severity "WARNING"
+                            $ScheduledTaskError = $true
+                        }
+                        $taskFinished = $true
+                        break
+                    }
+                    $retry++
                 }
-                else {
+
+                if (-not $taskFinished) {
+                    Write-Log "Task '$($task.Name)' did not finish within the expected time." -Severity "WARNING"
                     $ScheduledTaskError = $true
                 }
+            }
+            else {
+                Write-Log "Task '$($task.Name)' is in compliance (recent successful run within 8 hours)." -Severity "INFO"
             }
         }
         catch {
             # Log the task retrieval failure and add result to the summary
-            Write-Log "Task '$($task.Name)' not found or could not be retrieved." -Severity "WARNING"
+            Write-Log "Task '$($task.Name)' not found or could not be retrieved. $($_.Exception.Message)" -Severity "WARNING"
             $ScheduledTaskError = $true
         }
     }
 
     Write-Log "Test-ScheduledTasks result is: $($ScheduledTaskError)" -Severity "INFO"
-
     return $ScheduledTaskError
 }
+
+
+#Get Workspace ONE Intelligent Hub Version
+function Get-WorkspaceOneIntelligentHubVersion {
+    [CmdletBinding()]
+    Param()
+
+    # Attempt to retrieve the 'Workspace ONE Intelligent Hub Installer' product from WMI
+    $installer = Get-WmiObject -Class win32_Product -Filter "Name='Workspace ONE Intelligent Hub Installer'" -ErrorAction SilentlyContinue
+
+    if (-not $installer) {
+        Write-Verbose "Workspace ONE Intelligent Hub Installer not found on this machine."
+        return $null
+    }
+
+    # Cast the version string to a System.Version object for easier comparison
+    $version = [Version]$installer.Version
+
+    # Compare the version to 24.10.0.0
+    if ($version -ge [Version]"24.10.0.0") {
+        # Paths for 24.10 or higher
+        $paths = [PSCustomObject]@{
+            Version             = $version.ToString()
+            HubScheduledTaskName   = "WorkspaceONEHubHealthMonitoringJob"
+            SFDScheduledTaskPath   = "\Workspace ONE\SfdAgent\"
+        }
+    }
+    else {
+        # Paths for older versions
+        $paths = [PSCustomObject]@{
+            Version             = $version.ToString()
+            HubScheduledTaskName   = "VMwareHubHealthMonitoringJob"
+            SFDScheduledTaskPath   = "\VMware\SfdAgent\"
+        }
+    }
+
+    return $paths
+}
+
 
 # Function to Get Workspace ONE Intelligent Hub Status
 function Get-WorkspaceONEHubStatus {
@@ -366,29 +454,64 @@ function Get-WorkspaceONEHubStatus {
         }
     }
 
-    # NEW SECTION: Check if WorkspaceONEHubHealthMonitoringJob ran successfully in last 24 hours
-    $taskName = "WorkspaceONEHubHealthMonitoringJob"
+    # Check if WorkspaceONEHubHealthMonitoringJob ran successfully in last 24 hours
+    $HubInformation = Get-WorkspaceOneIntelligentHubPaths
+    $taskName = "$($HubInformation.HubScheduledTaskName)"
     $taskPath = "\"  # root folder of the Task Scheduler library
 
     try {
-        $task = Get-ScheduledTaskinfo -TaskName $taskName -TaskPath $taskPath -ErrorAction Stop 
+        $task = Get-ScheduledTaskInfo -TaskName $taskName -TaskPath $taskPath -ErrorAction Stop
         if ($null -ne $task) {
             # Check Last Run Time and Last Task Result
             $lastRunTime     = $task.LastRunTime
             $lastTaskResult  = $task.LastTaskResult  # Typically 0 means success
             $time24HoursAgo  = (Get-Date).AddHours(-24)
-
+    
             Write-Log "Task '$taskName' last ran at: $lastRunTime (Result: $lastTaskResult)" -Severity "INFO"
-
-            if ($lastRunTime -lt $time24HoursAgo) {
-                Write-Log "Task '$taskName' has not run in the last 24 hours." -Severity "WARNING"
+    
+            # Condition: If not run in last 24 hours OR last run was not successful
+            if (($lastRunTime -lt $time24HoursAgo) -or ($lastTaskResult -ne 0)) {
+                Write-Log "Task '$taskName' did not run successfully in the last 24 hours, or the result was non-zero." -Severity "WARNING"
                 $IntelligentHubError = $true
-            }
-            elseif ($lastTaskResult -ne 0) {
-                Write-Log "Task '$taskName' did not complete successfully (LastTaskResult=$lastTaskResult)." -Severity "WARNING"
-                $IntelligentHubError = $true
+    
+                # Attempt to re-trigger the task
+                Write-Log "Attempting to start scheduled task '$taskName' again..." -Severity "INFO"
+                Start-ScheduledTask -TaskName $taskName -TaskPath $taskPath
+    
+                # Optional brief wait before checking status again
+                Start-Sleep -Seconds 5
+    
+                # Wait loop: poll the task state for a certain amount of time
+                $retries     = 0
+                $maxRetries  = 12  # total wait time = maxRetries * 10 seconds = 120s
+                while ($retries -lt $maxRetries) {
+                    $currentTask = Get-ScheduledTask -TaskName $taskName -TaskPath $taskPath | Get-ScheduledTaskInfo
+                    if ($currentTask.State -eq 'Running') {
+                        Write-Log "Scheduled task '$taskName' is still running..." -Severity "INFO"
+                        Start-Sleep -Seconds 10
+                        $retries++
+                    }
+                    else {
+                        # The task is no longer running; check result
+                        if ($currentTask.LastTaskResult -eq 0) {
+                            Write-Log "Scheduled task '$taskName' completed successfully after being re-triggered." -Severity "INFO"
+                            $IntelligentHubError = $false
+                        }
+                        else {
+                            Write-Log "Scheduled task '$taskName' completed with a non-zero result: $($currentTask.LastTaskResult)" -Severity "WARNING"
+                            $IntelligentHubError = $true
+                        }
+                        break
+                    }
+                }
+    
+                # If we exit the loop and task is still running, handle as desired
+                if ($retries -eq $maxRetries) {
+                    Write-Log "Scheduled task '$taskName' did not finish within the allowed time ([$($maxRetries*10)]s)." -Severity "ERROR"
+                }
             }
             else {
+                # The task ran within last 24 hours with a successful result
                 Write-Log "Task '$taskName' ran successfully within the last 24 hours." -Severity "INFO"
             }
         }
@@ -426,7 +549,98 @@ function Get-WorkspaceONEHubStatus {
     return $IntelligentHubError
 }
 
+function Test-SFDTasks {
+    param()
 
+    # Location of the scheduled tasks
+    $taskPath = "\WorkspaceONE\SfdAgent\"
+
+    # Define tasks, their display names, and required run frequency (in minutes)
+    $tasksToCheck = @(
+        [PSCustomObject]@{
+            Name             = "Software Distribution Queue Task"
+            FrequencyMinutes = 240  # 4 hours
+        },
+        [PSCustomObject]@{
+            Name             = "Install Validation Task"
+            FrequencyMinutes = 240  # 4 hours
+        },
+        [PSCustomObject]@{
+            Name             = "Check Required Apps"
+            FrequencyMinutes = 15   # 15 minutes
+        }
+    )
+
+    foreach ($taskDefinition in $tasksToCheck) {
+        $taskName       = $taskDefinition.Name
+        $frequencyMins  = $taskDefinition.FrequencyMinutes
+
+        # Attempt to retrieve the task info
+        try {
+            $taskInfo = Get-ScheduledTask -TaskName "$($taskName)" -TaskPath $taskPath | Get-ScheduledTaskInfo
+        }
+        catch {
+            Write-Log "Task '$taskName' could not be found in path '$taskPath' (Error: $($_.Exception.Message))" -Severity "WARNING"
+            continue
+        }
+
+        if (-not $taskInfo) {
+            Write-Log "Task '$taskName' not found in path '$taskPath'." -Severity "WARNING"
+            continue
+        }
+
+        $lastRunTime     = $taskInfo.LastRunTime
+        $lastTaskResult  = $taskInfo.LastTaskResult  # 0 typically indicates success
+
+        Write-Log "Task '$taskName' last ran at: $lastRunTime (Result: $lastTaskResult)" -Severity "INFO"
+
+        # Calculate the threshold time (e.g., 4 hours or 15 minutes ago)
+        $thresholdTime = (Get-Date).AddMinutes(-$frequencyMins)
+
+        # Check if the task has run within the expected interval AND last result is 0
+        if (($lastRunTime -lt $thresholdTime) -or ($lastTaskResult -ne 0)) {
+
+            Write-Log "Task '$taskName' is out of compliance or did not complete successfully. Attempting to start..." -Severity "WARNING"
+            Start-ScheduledTask -TaskName $taskName -TaskPath $taskPath
+
+            # Optional short sleep before checking status again
+            Start-Sleep -Seconds 2
+
+            # Poll for completion
+            $maxRetries    = 10
+            $retry         = 0
+            $taskCompleted = $false
+
+            while ($retry -lt $maxRetries) {
+                Start-Sleep -Seconds 10
+                $currentTaskInfo = Get-ScheduledTask -TaskName $taskName -TaskPath $taskPath | Get-ScheduledTaskInfo
+                if ($currentTaskInfo.State -ne 'Running') {
+                    $taskCompleted = $true
+                    # Check final task result
+                    if ($currentTaskInfo.LastTaskResult -eq 0) {
+                        Write-Log "Task '$taskName' completed successfully after re-trigger." -Severity "INFO"
+                    }
+                    else {
+                        Write-Log "Task '$taskName' re-triggered but completed with a non-zero result: $($currentTaskInfo.LastTaskResult)" -Severity "ERROR"
+                    }
+                    break
+                }
+                else {
+                    Write-Log "Task '$taskName' is still running..." -Severity "INFO"
+                }
+                $retry++
+            }
+
+            # If the loop ends and the task is still running
+            if (-not $taskCompleted) {
+                Write-Log "Task '$taskName' did not finish within the allowed wait period." -Severity "WARNING"
+            }
+        }
+        else {
+            Write-Log "Task '$taskName' ran successfully within the last $frequencyMins minute(s)." -Severity "INFO"
+        }
+    }
+}
 
 
 #Function to check if a user is currently logged in to the device
@@ -557,6 +771,10 @@ if ((Get-UserLoggedIn) -eq $false) {
         $shutdown = "/r /t 20 /f"
         Start-Process shutdown.exe -ArgumentList $shutdown
 
+    }
+    else{
+        #No MDM errors found - check SFD status
+        Test-SFDTasks
     }
 
 }

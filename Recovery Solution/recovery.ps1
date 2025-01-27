@@ -1,15 +1,4 @@
 <#
-===============================================================================
-Script Name: recovery.ps1
-Description: Performs unenrollment of Workspace ONE, removes all associated 
-artifacts (applications, registry keys, certificates, etc.), and re-enrolls 
-the device into Workspace ONE.
-
-Author:      Grischa Ernst
-Date:        2024-12-12
-Version:     1.1
-===============================================================================
-
 DISCLAIMER:
 This script is provided "as is," without warranty of any kind, express or implied, 
 including but not limited to the warranties of merchantability, fitness for a 
@@ -23,6 +12,17 @@ own risk and ensure you understand its implications before running in
 production environments.
 ===============================================================================
 
+===============================================================================
+Script Name: recovery.ps1
+Description: Performs unenrollment of Workspace ONE, removes all associated 
+artifacts (applications, registry keys, certificates, etc.), and re-enrolls 
+the device into Workspace ONE.
+
+Author:      Grischa Ernst
+Date:        2024-12-12
+Version:     1.1
+===============================================================================
+
 USAGE:
 .\recovery.ps1
 ===============================================================================
@@ -34,6 +34,11 @@ NOTES:
   alternatives for production use.
 - Requires administrative privileges to execute.
 ===============================================================================
+
+===============================================================================
+Changelog: 
+1.0 - published
+1.1 - updated reference for Workspace ONE Intelligent HUB 24.10 and newer
 #>
 
 param(
@@ -272,6 +277,11 @@ $registryKeys = @(
     "HKLM:\SOFTWARE\Microsoft\PolicyManager\Providers\$($EnrollmentKey)",
     "HKLM:\SOFTWARE\Microsoft\Provisioning\OMADM\Session\$($EnrollmentKey)",
     "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\WindowsAnytimeUpgrade\Attempts\*"
+    "HKLM:\SOFTWARE\WorkspaceONE"
+    "HKLM:\SOFTWARE\AirWatchMDMBackup"
+    "HKLM:\SOFTWARE\VMware, Inc.\VMware EUC"
+    "HKLM:\SOFTWARE\VMware, Inc.\VMware Endpoint Telemetry"
+
 )
 
 foreach ($key in $registryKeys) {
@@ -294,12 +304,30 @@ Write-Log "Delete files and information that may have been left behind"
 
 
 #Delete folders
-$path = "$env:ProgramData\AirWatch"
-Remove-Item $path -Recurse -Force
+$directorypaths = @(
+    "$env:ProgramData\AirWatch",
+    "$env:ProgramData\VMware\SfdAgent",
+    "$env:ProgramFiles\WorkspaceONE",
+    "$env:ProgramData\VMware\vmwetlm",
+    "$env:ProgramData\VMware\EUC",
+    "$env:ProgramData\WorkspaceONE"
+)
 
-$path = "$env:ProgramData\VMware\SfdAgent"
-Remove-Item $path -Recurse -Force
-
+foreach ($directory in $directorypaths) {
+    try {
+        if (Test-Path $directory) {
+            Remove-Item $directory -Recurse -Force -ErrorAction SilentlyContinue
+            Write-Log "Successfully removed directory: $directory."
+        }
+        else {
+            Write-Log "Directory  not found: $directory." -Severity "WARNING"
+        }
+    }
+    catch {
+        Write-Log "Failed to remove directory: $directory. Error: $_" -Severity "ERROR"
+        $global:scriptError = $true
+    }
+}
 
 #Clean Scheduled Tasks - SFD
 Get-ScheduledTask -TaskPath "\Microsoft\Windows\EnterpriseMgmt\$($EnrollmentKey)\*" | Unregister-ScheduledTask  -Confirm:$false
@@ -309,14 +337,23 @@ $scheduleObject.connect()
 $rootFolder = $scheduleObject.GetFolder("\Microsoft\Windows\EnterpriseMgmt")
 $rootFolder.DeleteFolder("$($EnrollmentKey)", $null)
 
-#Clean Scheduled Tasks - SFD
+#Clean Scheduled Tasks - SFD - before 24.10
 Get-ScheduledTask -TaskPath "\vmware\SfdAgent\*" | Unregister-ScheduledTask  -Confirm:$false
 
 $scheduleObject = New-Object -ComObject Schedule.Service
 $scheduleObject.connect()
 $rootFolder = $scheduleObject.GetFolder("\vmware")
 $rootFolder.DeleteFolder("SfdAgent", $null)
+
+#Clean Scheduled Tasks - SFD - after 24.10
+Get-ScheduledTask -TaskPath "\Workspace ONE\SfdAgent\*" | Unregister-ScheduledTask  -Confirm:$false
+
+$scheduleObject = New-Object -ComObject Schedule.Service
+$scheduleObject.connect()
+$rootFolder = $scheduleObject.GetFolder("\Workspace ONE")
+$rootFolder.DeleteFolder("SfdAgent", $null)
     
+
 #Delete user certificates
 $UserCerts = Get-ChildItem cert:"CurrentUser" -Recurse
 $UserCerts | Where-Object { $_.Issuer -like "*AirWatch*" -or $_.Issuer -like "*AwDeviceRoot*" } | Remove-Item -Force
