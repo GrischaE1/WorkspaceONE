@@ -1,0 +1,12 @@
+{
+  "OverallThreshold": 10,
+  "IndividualThreshold": 5,
+  "ThresholdReached": "False",
+  "AutoReEnrollment": "True",
+  "ReEnrollmentWithCurrentUserSession": "True",
+  "EnrollmentDefinedDate": "False",
+  "EnrollmentDay": "Monday",
+  "EnrollmentTime": "08:00:00",
+  "EnrollIfNotEnrolled": "False",
+  "EnrollDuringCurrentUserSession": "True"
+}

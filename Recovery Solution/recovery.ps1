@@ -47,6 +47,13 @@ param(
     [string]$logFilePath = "C:\Windows\UEMRecovery\Logs\recovery.txt"
 )
 
+#importing the SQL functions
+. "$PSScriptRoot\SQLFunctions.ps1"
+. "$PSScriptRoot\General.ps1"
+
+# Define the SQLite database file path
+$dbPath = "$PSScriptRoot\HUBHealth.sqlite"
+
 # Start PowerShell Transcript to Capture Console Output
 if ($logFilePath) {
     Stop-Transcript -ErrorAction SilentlyContinue
@@ -57,46 +64,28 @@ if ($logFilePath) {
     Start-Transcript -Path $logFilePath -NoClobber -ErrorAction SilentlyContinue
 }
 
-# Centralized Logging Function
-function Write-Log {
-    param (
-        [string]$message,
-        [string]$severity = "INFO"
-    )
 
-    # Define severity levels for filtering based on verbosity level
-    $logLevels = @("INFO", "WARNING", "ERROR")
-    if ($logLevels.IndexOf($severity) -ge $logLevels.IndexOf($logLevel)) {
+$enrollmentStatus = Test-EnrollmentStatus
 
-        # Format message with a timestamp
-        $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
-        $formattedMessage = "$timestamp [$severity] - $message"
-
-        # Output to console for real-time viewing (also captured by transcript if active)
-        Write-ConsoleLog -message $formattedMessage -severity $severity
-    }
+$Configuration = Read-SQLiteTable -DbPath $dbPath -TableName "Configurations"
+if (-not $Configuration -or $Configuration.Count -eq 0) {
+    Write-Error "Failed to read configuration from the database. Aborting script."
+    exit 1
 }
 
-# Function to Write Console Output with Severity Colors
-function Write-ConsoleLog {
-    param (
-        [string]$message,
-        [string]$severity
-    )
+$EncryptionKey = Read-SQLiteTable -DbPath $dbPath -TableName "Encryption" | select EncryptionKey -ExpandProperty EncryptionKey
 
-    switch ($severity) {
-        "INFO" { Write-Host $message -ForegroundColor Green }
-        "WARNING" { Write-Host $message -ForegroundColor Yellow }
-        "ERROR" { Write-Host $message -ForegroundColor Red }
-    }
+$UEMCredentials = Read-CredentialsRecord -DbPath $dbPath -EncryptionKey $EncryptionKey
+if (-not $UEMCredentials -or $UEMCredentials.Count -eq 0) {
+    Write-Error "Failed to read credentials from the database. Aborting script."
+    exit 1
 }
 
 
-
-$WSOStagingUser = "test"
-$WSOStagingPW = 'test'
-$WSOOGID = "WS1"
-$WSOServer = "ds1831.awmdm.com"
+$WSOStagingUser = "$($UEMCredentials.Username)"
+$WSOStagingPW = "$($UEMCredentials.Password)"
+$WSOOGID = "$($UEMCredentials.OG)"
+$WSOServer = "$($UEMCredentials.Url)"
 
 Write-Log "Starting recovery execution" -Severity "INFO"
 
@@ -124,38 +113,37 @@ try {
 }
 catch {
     Write-Log "Failed to download Workspace ONE Agent: $_" -Severity "ERROR"
-    $global:scriptError = $true
     exit 1
 }
 
 # Get Enrollment ID
-Write-Log "Attempting to retrieve Enrollment ID."
-try {
-    # Retrieve all items under the Enrollment registry key
-    $AllItems = Get-ChildItem HKLM:\SOFTWARE\Microsoft\Enrollments -Recurse -ErrorAction Stop
-    $AirWatchMDMKey = $AllItems | Where-Object { $_.Name -like "*AirWatchMDM" }
+if ($enrollmentStatus.IsWorkspaceONEEnrolled -eq $True -or $enrollmentStatus.IsOMADMEnrolled -eq $true) {
+    Write-Log "Attempting to retrieve Enrollment ID."
+    try {
+        # Retrieve all items under the Enrollment registry key
+        $AllItems = Get-ChildItem HKLM:\SOFTWARE\Microsoft\Enrollments -Recurse -ErrorAction Stop
+        $AirWatchMDMKey = $AllItems | Where-Object { $_.Name -like "*AirWatchMDM" }
 
-    # Ensure the AirWatchMDMKey exists
-    if (-not $AirWatchMDMKey) {
-        throw "No AirWatchMDM key found in the registry."
+        # Ensure the AirWatchMDMKey exists
+        if (-not $AirWatchMDMKey) {
+            throw "No AirWatchMDM key found in the registry."
+        }
+
+        # Extract the Enrollment Key using regex
+        $pattern = "Enrollments\\(.*?)\\DMClient"
+        $EnrollmentKey = ([regex]::Match(($AirWatchMDMKey.PSPath), $pattern).Groups[1].Value).Replace("\\", "")
+
+        if (-not $EnrollmentKey) {
+            throw "Failed to extract Enrollment Key using the specified regex pattern."
+        }
+
+        Write-Log "Enrollment key retrieved successfully: $EnrollmentKey."
     }
-
-    # Extract the Enrollment Key using regex
-    $pattern = "Enrollments(.*?)\\DMClient"
-    $EnrollmentKey = ([regex]::Match(($AirWatchMDMKey.PSPath), $pattern).Groups[1].Value).Replace("\\", "")
-
-    if (-not $EnrollmentKey) {
-        throw "Failed to extract Enrollment Key using the specified regex pattern."
+    catch {
+        Write-Log "Failed to retrieve Enrollment ID: $_" -Severity "ERROR"
+        exit 1
     }
-
-    Write-Log "Enrollment key retrieved successfully: $EnrollmentKey."
 }
-catch {
-    Write-Log "Failed to retrieve Enrollment ID: $_" -Severity "ERROR"
-    $global:scriptError = $true
-    exit 1
-}
-
     
 # Uninstall SFD to avoid application uninstallation
 Write-Log "Attempting to uninstall SFD Agent."
@@ -177,7 +165,6 @@ try {
 }
 catch {
     Write-Log "Failed to uninstall SFD Agent: $_" -Severity "ERROR"
-    $global:scriptError = $true
 }
 
 
@@ -207,58 +194,57 @@ try {
 }
 catch {
     Write-Log "Error occurred while attempting to remove SFD and OMA-DM registry keys: $_" -Severity "ERROR"
-    $global:scriptError = $true
 }
 
 # Uninstall Intelligent Hub
 Write-Log "Attempting to uninstall Intelligent Hub."
-try {
-    # Retrieve Intelligent Hub installation data
-    $HubData = Get-WmiObject Win32_Product -ErrorAction Stop | Where-Object { $_.Name -like "*Intelligent HUB Installer*" }
+if ($enrollmentStatus.WorkspaceONEInstalled -eq $True) {
+    try {
+        # Retrieve Intelligent Hub installation data
+        $HubData = Get-WmiObject Win32_Product -ErrorAction Stop | Where-Object { $_.Name -like "*Intelligent HUB Installer*" }
 
-    # Validate if Intelligent Hub is found
-    if ($HubData) {
-        # Construct the uninstall command
-        $HubUninstall = "/x $($HubData.IdentifyingNumber) /q"
+        # Validate if Intelligent Hub is found
+        if ($HubData) {
+            # Construct the uninstall command
+            $HubUninstall = "/x $($HubData.IdentifyingNumber) /q"
 
-        # Execute the uninstall process
-        Start-Process MsiExec.exe -ArgumentList $HubUninstall -Wait -ErrorAction Stop
-        Write-Log "Intelligent Hub uninstalled successfully."
+            # Execute the uninstall process
+            Start-Process MsiExec.exe -ArgumentList $HubUninstall -Wait -ErrorAction Stop
+            Write-Log "Intelligent Hub uninstalled successfully."
+        }
+        else {
+            Write-Log "Intelligent Hub is not installed or could not be found." -Severity "WARNING"
+        }
     }
-    else {
-        Write-Log "Intelligent Hub is not installed or could not be found." -Severity "WARNING"
+    catch {
+        Write-Log "Failed to uninstall Intelligent Hub: $_" -Severity "ERROR"
+    }
+
+
+    #Sleep for 60 seconds to make sure Hub is uninstalled
+    Start-Sleep -Seconds 60
+
+    # Uninstall WS1 App
+    Write-Log "Attempting to uninstall WS1 app."
+    try {
+        # Retrieve the WS1 app package
+        $WS1App = Get-AppxPackage *AirWatchLLC* -ErrorAction SilentlyContinue
+
+        # Validate if the app package exists
+        if ($WS1App) {
+            # Attempt to remove the app package
+            $WS1App | Remove-AppxPackage -ErrorAction SilentlyContinue
+            Write-Log "WS1 app uninstalled successfully."
+        }
+        else {
+            Write-Log "WS1 app is not installed or could not be found." -Severity "WARNING"
+        }
+    }
+    catch {
+        Write-Log "Failed to uninstall WS1 app: $_" -Severity "ERROR"
+    
     }
 }
-catch {
-    Write-Log "Failed to uninstall Intelligent Hub: $_" -Severity "ERROR"
-    $global:scriptError = $true
-}
-
-
-#Sleep for 60 seconds to make sure Hub is uninstalled
-Start-Sleep -Seconds 60
-
-# Uninstall WS1 App
-Write-Log "Attempting to uninstall WS1 app."
-try {
-    # Retrieve the WS1 app package
-    $WS1App = Get-AppxPackage *AirWatchLLC* -ErrorAction SilentlyContinue
-
-    # Validate if the app package exists
-    if ($WS1App) {
-        # Attempt to remove the app package
-        $WS1App | Remove-AppxPackage -ErrorAction SilentlyContinue
-        Write-Log "WS1 app uninstalled successfully."
-    }
-    else {
-        Write-Log "WS1 app is not installed or could not be found." -Severity "WARNING"
-    }
-}
-catch {
-    Write-Log "Failed to uninstall WS1 app: $_" -Severity "ERROR"
-    $global:scriptError = $true
-}
-
 
 # Remove Enrollment Registry Keys
 Write-Log "Attempting to remove Enrollment registry keys."
@@ -296,7 +282,6 @@ foreach ($key in $registryKeys) {
     }
     catch {
         Write-Log "Failed to remove registry key: $key. Error: $_" -Severity "ERROR"
-        $global:scriptError = $true
     }
 }
 
@@ -325,7 +310,6 @@ foreach ($directory in $directorypaths) {
     }
     catch {
         Write-Log "Failed to remove directory: $directory. Error: $_" -Severity "ERROR"
-        $global:scriptError = $true
     }
 }
 
@@ -398,23 +382,6 @@ do {
         
             Write-Log "Device enrolled successfully."
 
-            #Remove autologon settings
-            $RegistryPath = 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon'
-            Remove-ItemProperty $RegistryPath -name "AutoAdminLogon"
-            Remove-ItemProperty $RegistryPath -name "DefaultUsername" 
-            Remove-ItemProperty $RegistryPath -name "DefaultPassword" 
-
-            #Remove the "Installer" account information from the login screen
-            New-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Authentication\LogonUI" -name "LastLoggedOnUser" -PropertyType String -Value "" -Force
-            New-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Authentication\LogonUI" -name "LastLoggedOnUserSID" -PropertyType String -Value "" -Force
-            New-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Authentication\LogonUI" -name "LastLoggedOnDisplayName" -PropertyType String -Value "" -Force
-            New-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Authentication\LogonUI" -name "LastLoggedOnSamUser" -PropertyType String -Value "" -Force
-            New-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Authentication\LogonUI" -name "SelectedUserSID" -PropertyType String -Value "" -Force
-
-            #Restart the device
-            $shutdown = "/r /t 20 /f"
-            Start-Process shutdown.exe -ArgumentList $shutdown
-
             # Disable the Scheduled Task
             Write-Log "Attempting to delete the scheduled task 'WorkspaceONE Recovery'."
             try {
@@ -423,9 +390,38 @@ do {
             }
             catch {
                 Write-Log "Failed to delete the scheduled task 'WorkspaceONE Recovery': $_" -Severity "ERROR"
-                $global:scriptError = $true
+               
             }
 
         }
     }
 }while ($enrollcheck -eq $false -and $sw.elapsed -lt $timeout)
+
+# Save space and remove the downloaded Hub again
+Remove-Item -Path $agentPath -Force
+
+
+if (($Configuration.AutoReEnrollment) -eq "True") {
+    
+    if ($Configuration.ReEnrollmentWithCurrentUserSession -eq $false) {
+        #Remove autologon settings
+        $RegistryPath = 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Winlogon'
+        Remove-ItemProperty $RegistryPath -name "AutoAdminLogon"
+        Remove-ItemProperty $RegistryPath -name "DefaultUsername" 
+        Remove-ItemProperty $RegistryPath -name "DefaultPassword" 
+
+        #Remove the "Installer" account information from the login screen
+        New-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Authentication\LogonUI" -name "LastLoggedOnUser" -PropertyType String -Value "" -Force
+        New-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Authentication\LogonUI" -name "LastLoggedOnUserSID" -PropertyType String -Value "" -Force
+        New-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Authentication\LogonUI" -name "LastLoggedOnDisplayName" -PropertyType String -Value "" -Force
+        New-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Authentication\LogonUI" -name "LastLoggedOnSamUser" -PropertyType String -Value "" -Force
+        New-ItemProperty "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Authentication\LogonUI" -name "SelectedUserSID" -PropertyType String -Value "" -Force
+
+    
+    
+        #Restart the device if not in the current user session
+        $shutdown = "/r /t 20 /f"
+        Start-Process shutdown.exe -ArgumentList $shutdown
+    }
+
+}
