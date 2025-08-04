@@ -1,49 +1,3 @@
-<#
-.SYNOPSIS
-    Orchestrates recovery actions for non-compliant devices in the Workspace ONE UEM environment.
-
-.DESCRIPTION
-    The recovery.ps1 script serves as the central orchestrator for initiating recovery actions when issues are detected in the Workspace ONE environment.
-    It integrates detection results from health checks with the re-enrollment logic to restore devices to a compliant state.
-    By coordinating the remediation process to ensures that devices which have fallen out of compliance are automatically re-enrolled and returned to proper management.
-
-
-.EXAMPLE
-    PS> .\recovery.ps1`
-    -DSServerURL          'ds137.awmdm.com' `
-    -UserName             'staginguser' `
-    -UserPassword         'P@ssw0rd!' `
-    -OGID                 'WS1' `
-    -logFilePath          'C:\Temp\deploy.log' `
-    -AgentUncPath         '\\fileserver\share\AirwatchAgent.msi' `
-    -LocalAgentDestination 'C:\Windows\UEMRecovery'
-
-    Executes the recovery process to re-enroll devices and perform necessary remediation actions based on detected issues.
-    It is recommended to schedule this script to run automatically .
-
-.NOTES
-    Author       : Grischa Ernst
-    Date         : 2025-07-25
-    Version      : 1.0.0
-    Requirements : PowerShell 5.1 or later / PowerShell Core 7+, access to Workspace ONE UEM endpoints, and properly configured supporting modules.
-    Purpose      : To orchestrate and execute the recovery process by integrating health check outputs with re-enrollment actions.
-
-.LICENSE
-    Distributed under the terms specified in the license.md file.
-#>
-
-
-param(
-    [Parameter(Mandatory = $true, ValueFromPipeline = $true, HelpMessage = "URL of the DS Server - e.g. ds137.awmdm.com for CN137")][String] $DSServerURL,   
-    [Parameter(Mandatory = $true, ValueFromPipeline = $true, HelpMessage = "Staginguser Username")][String] $UserName,
-    [Parameter(Mandatory = $true, ValueFromPipeline = $true, HelpMessage = "Staginguser Password")][String] $UserPassword,
-    [Parameter(Mandatory = $true, ValueFromPipeline = $true, HelpMessage = "Target OG ID")][String] $OGID,
-    [Parameter(Mandatory = $false, ValueFromPipeline = $true, HelpMessage = "Path to the log file where script output will be saved - e.g. C:\Temp\logfile.log")][String] $logFilePath,
-    [Parameter(Mandatory = $false, ValueFromPipeline = $true, HelpMessage = "Enter UNC path to copy the file from a local storage")][String] $AgentUncPath,
-    [Parameter(Mandatory = $true, ValueFromPipeline = $true, HelpMessage = "Enter the destination path for the agent on the device")][String] $LocalAgentDestination
-)
-
-
 ###################################################################
 # Functions
 
@@ -87,14 +41,14 @@ function Test-EnrollmentStatus {
     param()
 
     # Initialize flags.
-     $workspaceOneInstalled       = $false
-    $workspaceOneRegistryStatus  = $false
-    $isWorkspaceONEEnrolled      = $false
-    $isOMADMEnrolled             = $false
-    $isAirwatchMDMEnrolled       = $false
-    $hasSID                      = $false    
-    $hasUPN                      = $false    
-    $hasEnrollmentIdentity       = $false   
+    $workspaceOneInstalled = $false
+    $workspaceOneRegistryStatus = $false
+    $isWorkspaceONEEnrolled = $false
+    $isOMADMEnrolled = $false
+    $isAirwatchMDMEnrolled = $false
+    $hasSID = $false    
+    $hasUPN = $false    
+    $hasEnrollmentIdentity = $false   
 
     # --- Workspace ONE Enrollment Checks ---
 
@@ -143,15 +97,15 @@ function Test-EnrollmentStatus {
 
     # --- Airwatch MDM Enrollment Check ---
     try {
-        $ProviderID  = 'AirwatchMDM'
-        $enrollPath  = "HKLM:\SOFTWARE\Microsoft\Enrollments"
+        $ProviderID = 'AirwatchMDM'
+        $enrollPath = "HKLM:\SOFTWARE\Microsoft\Enrollments"
         if (Test-Path $enrollPath) {
             $match = Get-ChildItem -Path $enrollPath -ErrorAction Stop |
-                     Where-Object {
-                         (Get-ItemProperty -Path $_.PSPath `
-                             -Name 'ProviderId' -ErrorAction SilentlyContinue).ProviderId `
-                             -eq $ProviderID
-                     } | Select-Object -First 1
+            Where-Object {
+                (Get-ItemProperty -Path $_.PSPath `
+                    -Name 'ProviderId' -ErrorAction SilentlyContinue).ProviderId `
+                    -eq $ProviderID
+            } | Select-Object -First 1
 
             if ($match) {
                 $isAirwatchMDMEnrolled = $true
@@ -162,16 +116,18 @@ function Test-EnrollmentStatus {
                 # Check for SID
                 try {
                     $sidVal = (Get-ItemProperty -Path $provKeyPath `
-                                -Name 'SID' -ErrorAction SilentlyContinue).SID
+                            -Name 'SID' -ErrorAction SilentlyContinue).SID
                     if ($sidVal) { $hasSID = $true }
-                } catch {}
+                }
+                catch {}
 
                 # Check for UPN
                 try {
                     $upnVal = (Get-ItemProperty -Path $provKeyPath `
-                                -Name 'UPN' -ErrorAction SilentlyContinue).UPN
+                            -Name 'UPN' -ErrorAction SilentlyContinue).UPN
                     if ($upnVal) { $hasUPN = $true }
-                } catch {}
+                }
+                catch {}
 
                 # Composite
                 if ($hasSID -or $hasUPN) {
@@ -179,18 +135,19 @@ function Test-EnrollmentStatus {
                 }
             }
         }
-    } catch {}
+    }
+    catch {}
 
     # Return a custom object with the results.
     $result = [PSCustomObject]@{
-        WorkspaceONEInstalled       = $workspaceOneInstalled
-        WorkspaceONERegistryStatus  = $workspaceOneRegistryStatus
-        IsWorkspaceONEEnrolled      = $isWorkspaceONEEnrolled
-        IsOMADMEnrolled             = $isOMADMEnrolled
-        IsAirwatchMDMEnrolled       = $isAirwatchMDMEnrolled
-        HasSID                      = $hasSID
-        HasUPN                      = $hasUPN
-        HasEnrollmentIdentity       = $hasEnrollmentIdentity
+        WorkspaceONEInstalled      = $workspaceOneInstalled
+        WorkspaceONERegistryStatus = $workspaceOneRegistryStatus
+        IsWorkspaceONEEnrolled     = $isWorkspaceONEEnrolled
+        IsOMADMEnrolled            = $isOMADMEnrolled
+        IsAirwatchMDMEnrolled      = $isAirwatchMDMEnrolled
+        HasSID                     = $hasSID
+        HasUPN                     = $hasUPN
+        HasEnrollmentIdentity      = $hasEnrollmentIdentity
     }
 
     return $result
@@ -200,6 +157,21 @@ function Test-EnrollmentStatus {
 
 ###################################################################
 # Execution
+
+#Ensure log‐file directory exists
+# Extract parent folder from the full log‐file path
+$logDir = Split-Path -Path $logFilePath -Parent
+
+if (-not (Test-Path -Path $logDir -PathType Container)) {
+    # Create the folder (and any missing parents) if it doesn't exist
+    New-Item -Path $logDir -ItemType Directory -Force | Out-Null
+    Write-Host "Created log directory: $logDir"
+}
+# Ensure agent‐destination directory exists
+if (-not (Test-Path -Path $LocalAgentDestination -PathType Container)) {
+    New-Item -Path $LocalAgentDestination -ItemType Directory -Force | Out-Null
+    Write-Host "Created agent destination directory: $LocalAgentDestination"
+}
 
 # Start PowerShell Transcript to Capture Console Output
 if ($logFilePath) {
@@ -215,8 +187,8 @@ $enrollmentStatus = Test-EnrollmentStatus
 
 # Grab all boolean property values
 $allBoolValues = $enrollmentStatus.PSObject.Properties `
-    | Where-Object { $_.Value -is [bool] } `
-    | Select-Object -ExpandProperty Value
+| Where-Object { $_.Value -is [bool] } `
+| Select-Object -ExpandProperty Value
 
 # If any flag is $false → continue; if none are $false (all true) → exit
 if ($allBoolValues -contains $false) {
