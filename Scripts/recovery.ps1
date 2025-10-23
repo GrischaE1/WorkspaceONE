@@ -357,7 +357,7 @@ if ($allBoolValues -contains $false) {
     Write-Log "Attempting to remove Enrollment registry keys."
     $registryKeys = @(
         "HKLM:\SOFTWARE\AirWatch",
-        "HKLM:\SOFTWARE\Microsoft\Enrollments",
+        "HKLM:\SOFTWARE\Microsoft\Enrollments\*",
         "HKLM:\SOFTWARE\Microsoft\EnterpriseDesktopAppManagement\S-0-0-00-0000000000-0000000000-000000000-000\MSI",
         "HKLM:\SOFTWARE\Microsoft\Provisioning\OMADM\Accounts",
         "HKLM:\SOFTWARE\Microsoft\Provisioning\OMADM\logger",
