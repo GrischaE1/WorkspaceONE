@@ -98,7 +98,6 @@ if ($Reenrolldevice -eq "true") {
     }
 
     # Uninstall Intelligent Hub
-    if ($enrollmentStatus.WorkspaceONEInstalled -eq $True) {
         try {
             # Retrieve Intelligent Hub installation data
             $HubData = Get-WmiObject Win32_Product -ErrorAction Stop | Where-Object { $_.Name -like "*Intelligent HUB Installer*" }
@@ -132,7 +131,7 @@ if ($Reenrolldevice -eq "true") {
         }
         catch {    
         }
-    }
+    
 
     # Remove Enrollment Registry Keys
     $registryKeys = @(
